@@ -1,35 +1,91 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { Redirect, Tabs } from "expo-router";
+import { StyleSheet, Text, View } from "react-native";
+import { useAuth } from "../../utils/ctx";
 
-import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+export default function TabsLayout() {
+  const { user, isLoading } = useAuth();
 
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>Cargando usuario...</Text>
+      </View>
+    );
+  }
+  if (!user) return <Redirect href="/login" />;
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        tabBarButton: HapticTab,
-      }}>
+        headerStyle: { backgroundColor: "#000000ff" }, // 🔥 Fondo naranja
+        headerTintColor: "#fff",
+        headerTitleStyle: {
+          fontWeight: "600",
+          fontSize: 17,
+          letterSpacing: -0.4,
+        },
+        headerShadowVisible: false,
+        tabBarActiveTintColor: "#ffffff",
+        tabBarInactiveTintColor: "rgba(255,255,255,0.7)",
+        tabBarStyle: styles.tabBar, // 👇 usa mismo color
+        tabBarShowLabel: false,
+        tabBarIconStyle: styles.tabBarIcon,
+      }}
+    >
       <Tabs.Screen
-        name="index"
+        name="transacciones"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: "Transactions",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "swap-horizontal" : "swap-horizontal-outline"}
+              size={32}
+              color={color}
+            />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="index"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: "Wallet",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "card" : "card-outline"}
+              size={32}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="perfil"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "person-circle" : "person-circle-outline"}
+              size={32}
+              color={color}
+            />
+          ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    backgroundColor: "#000000ff", // 🔥 NARANJA brillante
+    borderTopWidth: 0,
+    elevation: 0,
+    height: 65,
+    paddingBottom: 10,
+    paddingTop: 10,
+  },
+  tabBarIcon: {
+    marginTop: -5,
+  },
+});
