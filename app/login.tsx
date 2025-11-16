@@ -17,6 +17,7 @@ import {
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { loginUser, registerUser } from "../utils/authService";
 
+
 export default function LoginScreen() {
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
@@ -28,15 +29,15 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  // New states for floating success message
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [toastType, setToastType] = useState(""); // 'success' or 'welcome'
+  const [toastType, setToastType] = useState("");
+
 
   const cardTranslateY = useRef(new Animated.Value(0)).current;
-  const toastOpacity = useRef(new Animated.Value(0)).current; // For fade animation
+  const toastOpacity = useRef(new Animated.Value(0)).current;
 
-  // Hide splash after 3 seconds
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
@@ -45,7 +46,7 @@ export default function LoginScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Animate toast
+
   useEffect(() => {
     if (showSuccessToast) {
       Animated.sequence([
@@ -54,9 +55,7 @@ export default function LoginScreen() {
           duration: 300,
           useNativeDriver: true,
         }),
-        // Stay visible for 2 seconds
         Animated.delay(2000),
-        // Fade out
         Animated.timing(toastOpacity, {
           toValue: 0,
           duration: 300,
@@ -65,12 +64,12 @@ export default function LoginScreen() {
       ]).start(({ finished }) => {
         if (finished) {
           setShowSuccessToast(false);
-          // Navigate after toast dismisses
           router.replace("/(tabs)");
         }
       });
     }
   }, [showSuccessToast]);
+
 
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
@@ -100,6 +99,7 @@ export default function LoginScreen() {
     };
   }, []);
 
+
   const handleAuth = async () => {
     if (isRegister && (!email || !password || !confirmPassword || !nombre || !apellido || !celular)) {
       Alert.alert("Error", "Completa todos los campos");
@@ -126,20 +126,22 @@ export default function LoginScreen() {
         setToastType("welcome");
       }
       setShowSuccessToast(true);
-      // Don't navigate here; it happens after animation in useEffect
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Error desconocido";
       Alert.alert("Error", errorMessage);
     }
   };
 
+
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
 
+
   const toggleConfirmPasswordVisibility = () => {
     setShowConfirmPassword(!showConfirmPassword);
   };
+
 
   if (showSplash) {
     return (
@@ -158,16 +160,16 @@ export default function LoginScreen() {
     );
   }
 
+
   return (
     <View style={styles.container}>
-      {/* Floating Success Toast - Top positioned */}
       {showSuccessToast && (
         <Animated.View
           style={[
             styles.toast,
             {
               opacity: toastOpacity,
-              backgroundColor: toastType === "success" ? "#845e5eff" : "#845e5eff", // Green for success, Blue for welcome
+              backgroundColor: toastType === "success" ? "#845e5eff" : "#845e5eff",
             },
           ]}
         >
@@ -175,7 +177,6 @@ export default function LoginScreen() {
         </Animated.View>
       )}
 
-      {/* Logo arriba */}
       <View style={styles.logoContainer}>
         <Image
           source={require("../assets/images/logowawallet.png")}
@@ -184,7 +185,6 @@ export default function LoginScreen() {
         />
       </View>
 
-      {/* Tarjeta naranja con scroll automático - Animated to move up with keyboard */}
       <Animated.View
         style={[
           styles.bottomSection,
@@ -206,71 +206,84 @@ export default function LoginScreen() {
 
           {isRegister && (
             <>
-              <TextInput
-                style={styles.input}
-                placeholder="Nombre"
-                value={nombre}
-                onChangeText={setNombre}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Apellido"
-                value={apellido}
-                onChangeText={setApellido}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Celular"
-                keyboardType="phone-pad"
-                value={celular}
-                onChangeText={setCelular}
-              />
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Nombre</Text>
+                <TextInput
+                  style={styles.input}
+                  value={nombre}
+                  onChangeText={setNombre}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Apellido</Text>
+                <TextInput
+                  style={styles.input}
+                  value={apellido}
+                  onChangeText={setApellido}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Celular</Text>
+                <TextInput
+                  style={styles.input}
+                  keyboardType="phone-pad"
+                  value={celular}
+                  onChangeText={setCelular}
+                />
+              </View>
             </>
           )}
 
-          <TextInput
-            style={styles.input}
-            placeholder="Correo electrónico"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-          />
-          {/* Password input with eye icon */}
-          <View style={styles.passwordContainer}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Correo electrónico</Text>
             <TextInput
-              style={[styles.input, { flex: 1, paddingRight: 40 }]}
-              placeholder="Contraseña"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
+              style={styles.input}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={email}
+              onChangeText={setEmail}
             />
-            <TouchableOpacity onPress={togglePasswordVisibility} style={styles.eyeIcon}>
-              <Ionicons
-                name={showPassword ? "eye-off" : "eye"}
-                size={20}
-                color="#000000ff"
-              />
-            </TouchableOpacity>
           </View>
 
-          {/* Confirm Password input - Only for registration */}
-          {isRegister && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Contraseña</Text>
             <View style={styles.passwordContainer}>
               <TextInput
-                style={[styles.input, { flex: 1, paddingRight: 40 }]}
-                placeholder="Confirmar Contraseña"
-                secureTextEntry={!showConfirmPassword}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                style={[styles.input, styles.passwordInput]}
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={setPassword}
               />
-              <TouchableOpacity onPress={toggleConfirmPasswordVisibility} style={styles.eyeIcon}>
+              <TouchableOpacity onPress={togglePasswordVisibility} style={styles.eyeIcon}>
                 <Ionicons
-                  name={showConfirmPassword ? "eye-off" : "eye"}
+                  name={showPassword ? "eye-off" : "eye"}
                   size={20}
                   color="#000000ff"
                 />
               </TouchableOpacity>
+            </View>
+          </View>
+
+          {isRegister && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirmar Contraseña</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  secureTextEntry={!showConfirmPassword}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                />
+                <TouchableOpacity onPress={toggleConfirmPasswordVisibility} style={styles.eyeIcon}>
+                  <Ionicons
+                    name={showConfirmPassword ? "eye-off" : "eye"}
+                    size={20}
+                    color="#000000ff"
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -291,6 +304,7 @@ export default function LoginScreen() {
   );
 }
 
+
 const styles = StyleSheet.create({
   splashContainer: {
     flex: 1,
@@ -310,13 +324,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000000ff",
   },
-  /* Toast style - Floating at top */
   toast: {
     position: "absolute",
     top: 50,
     left: 20,
     right: 20,
-    backgroundColor: "#000000ff", // Default green, overridden by type
+    backgroundColor: "#000000ff",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -367,27 +380,37 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: "#000000ff",
   },
+  inputGroup: {
+    marginBottom: 14,
+  },
+  label: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#000000ff",
+    marginBottom: 6,
+    marginLeft: 4,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#000000ff",
     borderRadius: 12,
     padding: 12,
-    marginBottom: 14,
     fontSize: 16,
     backgroundColor: "#fff",
   },
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#ffffffff",
-    borderRadius: 12,
-    marginBottom: 14,
-    backgroundColor: "#fff",
+    position: "relative",
+  },
+  passwordInput: {
+    flex: 1,
+    paddingRight: 45,
   },
   eyeIcon: {
-    padding: 10,
-    marginTop: -4,
+    position: "absolute",
+    right: 12,
+    padding: 8,
   },
   button: {
     backgroundColor: "#000000ff",
@@ -395,6 +418,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     marginVertical: 8,
+    marginTop: 20,
   },
   buttonText: {
     color: "#ffffffff",
