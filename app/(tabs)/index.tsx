@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import {
   collection,
@@ -23,12 +25,14 @@ import {
   Modal,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import { auth, db } from "../../utils/firebase";
 import generateCard from "../../utils/generateCard";
 
@@ -41,6 +45,16 @@ export default function IndexScreen() {
   const [flipped, setFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
+
+  // QR Receive Modal
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+
+  // Camera permissions for QR scanner
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanning, setScanning] = useState(false);
+  const [scanned, setScanned] = useState(false);
 
   // Transfer modal states
   const [transferVisible, setTransferVisible] = useState(false);
@@ -50,12 +64,21 @@ export default function IndexScreen() {
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferSuccess, setTransferSuccess] = useState(false);
   const [recipientName, setRecipientName] = useState("");
+  const [scannedData, setScannedData] = useState<any>(null);
 
+  // Copy feedback
+  const [copied, setCopied] = useState(false);
+
+  // Animations
   const flipAnim = useRef(new Animated.Value(0)).current;
   const modalAnim = useRef(new Animated.Value(0)).current;
+  const qrModalAnim = useRef(new Animated.Value(0)).current;
   const transferModalAnim = useRef(new Animated.Value(0)).current;
   const successAnim = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(0)).current;
+  const qrScale = useRef(new Animated.Value(0)).current;
+  const copyAnim = useRef(new Animated.Value(0)).current;
+  const scanLineAnim = useRef(new Animated.Value(0)).current;
 
   const frontInterpolate = flipAnim.interpolate({
     inputRange: [0, 180],
@@ -78,6 +101,7 @@ export default function IndexScreen() {
 
   const openModal = async () => {
     setModalVisible(true);
+    setShowQR(false);
     modalAnim.setValue(0);
     Animated.timing(modalAnim, {
       toValue: 1,
@@ -93,7 +117,82 @@ export default function IndexScreen() {
       duration: 250,
       easing: Easing.in(Easing.ease),
       useNativeDriver: true,
-    }).start(() => setModalVisible(false));
+    }).start(() => {
+      setModalVisible(false);
+      setShowQR(false);
+      setFlipped(false);
+      flipAnim.setValue(0);
+    });
+  };
+
+  // Open QR Receive Modal
+  const openQRModal = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setQrModalVisible(true);
+    qrModalAnim.setValue(0);
+    qrScale.setValue(0);
+    Animated.parallel([
+      Animated.timing(qrModalAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      Animated.spring(qrScale, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Close QR Receive Modal
+  const closeQRModal = async () => {
+    Animated.timing(qrModalAnim, {
+      toValue: 0,
+      duration: 250,
+      easing: Easing.in(Easing.ease),
+      useNativeDriver: true,
+    }).start(() => {
+      setQrModalVisible(false);
+    });
+  };
+
+  // Toggle QR view with animation
+  const toggleQR = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowQR(!showQR);
+    qrScale.setValue(0);
+    Animated.spring(qrScale, {
+      toValue: 1,
+      tension: 50,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Copy card number to clipboard
+  const copyCardNumber = async () => {
+    if (!card) return;
+    await Clipboard.setStringAsync(card.numero);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCopied(true);
+
+    copyAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(copyAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.delay(1500),
+      Animated.timing(copyAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setCopied(false));
   };
 
   // Open transfer modal with animation
@@ -125,6 +224,9 @@ export default function IndexScreen() {
       setReason("");
       setRecipientName("");
       setTransferSuccess(false);
+      setScannedData(null);
+      setScanning(false);
+      setScanned(false);
     });
   };
 
@@ -149,10 +251,67 @@ export default function IndexScreen() {
       }),
     ]).start();
 
-    // Close modal after success
     setTimeout(() => {
       closeTransferModal();
     }, 2500);
+  };
+
+  // Start scanning animation
+  const startScanLineAnimation = () => {
+    scanLineAnim.setValue(0);
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(scanLineAnim, {
+          toValue: 1,
+          duration: 2000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scanLineAnim, {
+          toValue: 0,
+          duration: 2000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  // Handle QR code scan
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    if (scanned) return;
+    setScanned(true);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed.app === "WaWallet" && parsed.uid) {
+        setScannedData(parsed);
+        setRecipientName(parsed.name || "Usuario");
+        setScanning(false);
+      } else {
+        Alert.alert("Error", "Código QR no válido");
+        setScanned(false);
+      }
+    } catch (error) {
+      Alert.alert("Error", "No se pudo leer el código QR");
+      setScanned(false);
+    }
+  };
+
+  // Start QR scanner
+  const startScanning = async () => {
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        Alert.alert("Error", "Se necesita permiso de cámara");
+        return;
+      }
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setScanning(true);
+    setScanned(false);
+    startScanLineAnimation();
   };
 
   // Function to fetch or create user data (including balance)
@@ -163,6 +322,7 @@ export default function IndexScreen() {
     if (snap.exists()) {
       const data = snap.data();
       setBalance(data.balance ?? 0);
+      setUserData(data);
       if (data.tarjeta) {
         setCard(data.tarjeta);
       } else {
@@ -176,19 +336,26 @@ export default function IndexScreen() {
     setLoading(false);
   };
 
-  // ✨✨✨ HANDLE TRANSFER - CON GUARDADO DE TRANSACCIONES ✨✨✨
+  // Handle transfer (phone or QR)
   const handleTransfer = async () => {
-    const phone = recipientPhone.trim();
     const transferAmount = parseFloat(amount);
+    const recipientUid = scannedData?.uid || null;
 
-    if (!phone || !amount) {
+    if (!amount) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", "Completa todos los campos requeridos");
+      Alert.alert("Error", "Ingresa una cantidad");
       return;
     }
+
     if (transferAmount <= 0 || transferAmount > balance) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Cantidad inválida o saldo insuficiente");
+      return;
+    }
+
+    if (!recipientUid && !recipientPhone.trim()) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error", "Ingresa un número de teléfono o escanea un QR");
       return;
     }
 
@@ -196,46 +363,43 @@ export default function IndexScreen() {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      console.log("🔍 Buscando destinatario con teléfono:", phone);
+      let finalRecipientUid = recipientUid;
+      let finalRecipientName = recipientName;
 
-      // Query for recipient by phone
-      const q = query(
-        collection(db, "usuarios"),
-        where("celular", "==", phone)
-      );
-      const querySnapshot = await getDocs(q);
-
-      if (querySnapshot.empty) {
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Error
+      if (!recipientUid) {
+        const phone = recipientPhone.trim();
+        const q = query(
+          collection(db, "usuarios"),
+          where("celular", "==", phone)
         );
-        Alert.alert("Error", "Usuario no encontrado con ese número de celular");
-        setTransferLoading(false);
-        return;
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Error
+          );
+          Alert.alert(
+            "Error",
+            "Usuario no encontrado con ese número de celular"
+          );
+          setTransferLoading(false);
+          return;
+        }
+
+        finalRecipientUid = querySnapshot.docs[0].id;
+        const recipientData = querySnapshot.docs[0].data();
+        finalRecipientName = `${recipientData.nombre || ""} ${recipientData.apellido || ""
+          }`.trim();
+        setRecipientName(finalRecipientName);
       }
 
-      const recipientUid = querySnapshot.docs[0].id;
-      const recipientData = querySnapshot.docs[0].data();
-      const recipientFullName = `${recipientData.nombre || ""} ${
-        recipientData.apellido || ""
-      }`.trim();
-      setRecipientName(recipientFullName);
-
-      console.log("✅ Destinatario encontrado:", recipientFullName, recipientUid);
-
-      // Get sender data BEFORE transaction
       const senderDoc = await getDoc(
         doc(db, "usuarios", auth.currentUser!.uid)
       );
       const senderData = senderDoc.data();
-      const senderFullName = `${senderData?.nombre || ""} ${
-        senderData?.apellido || ""
-      }`.trim();
+      const senderFullName = `${senderData?.nombre || ""} ${senderData?.apellido || ""
+        }`.trim();
 
-      console.log("👤 Remitente:", senderFullName, auth.currentUser!.uid);
-      console.log("💸 Iniciando transacción de $", transferAmount);
-
-      // ✨✨✨ TRANSACTION CON GUARDADO DE TRANSACCIONES ✨✨✨
       await runTransaction(db, async (transaction) => {
         const senderRef = doc(db, "usuarios", auth.currentUser!.uid);
         const senderSnap = await transaction.get(senderRef);
@@ -248,15 +412,12 @@ export default function IndexScreen() {
         if (transferAmount > currentBalance)
           throw new Error("Saldo insuficiente");
 
-        const recipientRef = doc(db, "usuarios", recipientUid);
+        const recipientRef = doc(db, "usuarios", finalRecipientUid);
         const recipientSnap = await transaction.get(recipientRef);
 
         if (!recipientSnap.exists())
           throw new Error("Destinatario no encontrado");
 
-        console.log("💰 Actualizando balances...");
-
-        // Update balances
         transaction.update(senderRef, {
           balance: currentBalance - transferAmount,
         });
@@ -265,48 +426,37 @@ export default function IndexScreen() {
           balance: (recipientSnap.data().balance ?? 0) + transferAmount,
         });
 
-        console.log("✅ Balances actualizados");
-
-        // ✨ GUARDAR TRANSACCIÓN DEL REMITENTE (ENVÍO)
         const senderTransactionRef = doc(
           collection(db, "usuarios", auth.currentUser!.uid, "transacciones")
         );
 
-        console.log("📤 Guardando transacción de envío...");
         transaction.set(senderTransactionRef, {
           tipo: "envio",
           monto: transferAmount,
-          destinatario: recipientFullName || phone,
-          razon: reason || "",
+          destinatario: finalRecipientName || recipientPhone,
+          razon: reason || "Transferencia",
           fecha: new Date(),
           estado: "completado",
         });
-        console.log("✅ Transacción de envío guardada");
 
-        // ✨ GUARDAR TRANSACCIÓN DEL DESTINATARIO (RECEPCIÓN)
         const recipientTransactionRef = doc(
-          collection(db, "usuarios", recipientUid, "transacciones")
+          collection(db, "usuarios", finalRecipientUid, "transacciones")
         );
 
-        console.log("📥 Guardando transacción de recepción...");
         transaction.set(recipientTransactionRef, {
           tipo: "recepcion",
           monto: transferAmount,
           remitente: senderFullName || "Usuario",
-          razon: reason || "",
+          razon: reason || "Transferencia",
           fecha: new Date(),
           estado: "completado",
         });
-        console.log("✅ Transacción de recepción guardada");
       });
 
-      console.log("🎉 ¡Transferencia completada exitosamente!");
-
-      // Success
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
       );
-      await fetchOrCreateCard(); // Update local balance
+      await fetchOrCreateCard();
       showSuccessAnimation();
     } catch (error) {
       console.error("❌ Error en transferencia:", error);
@@ -326,22 +476,31 @@ export default function IndexScreen() {
   const formatBalance = (v: number) =>
     v.toLocaleString("en-US", { minimumFractionDigits: 2 });
 
-  const maskedBalance = balance
-    .toLocaleString("en-US", { minimumFractionDigits: 2 })
-    .replace(/\d/g, "*");
+  const qrData = JSON.stringify({
+    app: "WaWallet",
+    uid: auth.currentUser?.uid,
+    name: userData
+      ? `${userData.nombre || ""} ${userData.apellido || ""}`.trim()
+      : "Usuario",
+  });
+
+  const scanLineTranslate = scanLineAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 240],
+  });
 
   if (loading)
     return (
-      <ActivityIndicator
-        size="large"
-        color="#007AFF"
-        style={{ marginTop: 100 }}
-      />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#fff" />
+      </View>
     );
 
   return (
     <View style={styles.container}>
-      {/* SMALL CARD - At the top */}
+      <StatusBar barStyle="light-content" />
+
+      {/* CARD - MÁS ARRIBA */}
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={openModal}
@@ -362,11 +521,7 @@ export default function IndexScreen() {
             style={styles.logo}
             resizeMode="contain"
           />
-          <Text
-            style={styles.cardNumber}
-            numberOfLines={1}
-            ellipsizeMode="clip"
-          >
+          <Text style={styles.cardNumber} numberOfLines={1} ellipsizeMode="clip">
             {card.numero.slice(0, 4)} **** **** ****
           </Text>
           <View style={styles.cardBottom}>
@@ -382,22 +537,99 @@ export default function IndexScreen() {
         </ImageBackground>
       </TouchableOpacity>
 
-      {/* TRANSFER BUTTON WITH ICON */}
-      <TouchableOpacity
-        style={styles.transferBtn}
-        onPress={openTransferModal}
-        disabled={balance <= 0}
-      >
-        <Ionicons
-          name="arrow-up-circle-outline"
-          size={22}
-          color="#fff"
-          style={{ marginRight: 6 }}
-        />
-        <Text style={styles.transferText}>Transfer</Text>
-      </TouchableOpacity>
+      {/* ACTION BUTTONS - Transfer & Receive */}
+      <View style={styles.actionsContainer}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.transferButton]}
+          onPress={openTransferModal}
+          disabled={balance <= 0}
+        >
+          <Ionicons
+            name="arrow-up-circle-outline"
+            size={22}
+            color="#000"
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.actionButtonText}>Transfer</Text>
+        </TouchableOpacity>
 
-      {/* FULL SCREEN TRANSFER MODAL */}
+        <TouchableOpacity
+          style={[styles.actionButton, styles.receiveButton]}
+          onPress={openQRModal}
+        >
+          <Ionicons
+            name="download-outline"
+            size={22}
+            color="#fff"
+            style={{ marginRight: 6 }}
+          />
+          <Text style={[styles.actionButtonText, { color: "#fff" }]}>
+            Receive
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* QR RECEIVE MODAL */}
+      <Modal visible={qrModalVisible} transparent animationType="none">
+        <Animated.View
+          style={[
+            styles.qrReceiveModal,
+            {
+              opacity: qrModalAnim,
+              transform: [
+                {
+                  scale: qrModalAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.95, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Header */}
+          <View style={styles.qrReceiveHeader}>
+            <TouchableOpacity onPress={closeQRModal} style={styles.closeBtn}>
+              <Ionicons name="close" size={30} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.qrReceiveTitle}>Mi código QR</Text>
+            <View style={{ width: 30 }} />
+          </View>
+
+          {/* QR Code */}
+          <Animated.View
+            style={[
+              styles.qrReceiveContent,
+              { transform: [{ scale: qrScale }] },
+            ]}
+          >
+            <View style={styles.qrWrapper}>
+              <View style={styles.qrInner}>
+                <QRCode value={qrData} size={240} backgroundColor="#fff" />
+              </View>
+              <View style={[styles.qrCorner, styles.qrCornerTL]} />
+              <View style={[styles.qrCorner, styles.qrCornerTR]} />
+              <View style={[styles.qrCorner, styles.qrCornerBL]} />
+              <View style={[styles.qrCorner, styles.qrCornerBR]} />
+            </View>
+
+            <Text style={styles.qrReceiveName}>
+              {userData
+                ? `${userData.nombre || ""} ${userData.apellido || ""}`.trim()
+                : "Usuario"}
+            </Text>
+
+            <View style={styles.qrInfoCard}>
+              <Ionicons name="information-circle" size={20} color="#fff" />
+              <Text style={styles.qrInfoText}>
+                Share this code to receive money
+              </Text>
+            </View>
+          </Animated.View>
+        </Animated.View>
+      </Modal>
+
+      {/* TRANSFER MODAL */}
       <Modal visible={transferVisible} transparent animationType="none">
         <Animated.View
           style={[
@@ -409,19 +641,17 @@ export default function IndexScreen() {
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             style={{ flex: 1 }}
           >
-            {/* Header */}
             <View style={styles.modalHeader}>
               <TouchableOpacity
                 onPress={closeTransferModal}
                 style={styles.modalCloseBtn}
               >
-                <Ionicons name="close" size={28} color="#000" />
+                <Ionicons name="close" size={28} color="#fff" />
               </TouchableOpacity>
               <Text style={styles.modalHeaderTitle}>Send Money</Text>
               <View style={{ width: 28 }} />
             </View>
 
-            {/* Success View */}
             {transferSuccess ? (
               <Animated.View
                 style={[
@@ -435,7 +665,7 @@ export default function IndexScreen() {
                 <View style={styles.successCheckmark}>
                   <Ionicons name="checkmark" size={60} color="#fff" />
                 </View>
-                <Text style={styles.successTitle}>Transfer Successful!</Text>
+                <Text style={styles.successTitle}>Transfer Complete!</Text>
                 <Text style={styles.successAmount}>${amount}</Text>
                 <Text style={styles.successRecipient}>
                   Sent to {recipientName || recipientPhone}
@@ -444,13 +674,114 @@ export default function IndexScreen() {
                   <Text style={styles.successReason}>"{reason}"</Text>
                 ) : null}
               </Animated.View>
+            ) : scanning ? (
+              <View style={styles.scannerContainer}>
+                <CameraView
+                  style={styles.camera}
+                  onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+                  barcodeScannerSettings={{
+                    barcodeTypes: ["qr"],
+                  }}
+                >
+                  <View style={styles.scanOverlay}>
+                    <View style={styles.scanFrame}>
+                      <Animated.View
+                        style={[
+                          styles.scanLine,
+                          { transform: [{ translateY: scanLineTranslate }] },
+                        ]}
+                      />
+                      <View style={[styles.scanCorner, styles.scanCornerTL]} />
+                      <View style={[styles.scanCorner, styles.scanCornerTR]} />
+                      <View style={[styles.scanCorner, styles.scanCornerBL]} />
+                      <View style={[styles.scanCorner, styles.scanCornerBR]} />
+                    </View>
+
+                    <Text style={styles.scanText}>
+                      Scan recipient's QR code
+                    </Text>
+
+                    <TouchableOpacity
+                      style={styles.cancelScanBtn}
+                      onPress={() => {
+                        setScanning(false);
+                        setScanned(false);
+                      }}
+                    >
+                      <Text style={styles.cancelScanText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </CameraView>
+              </View>
             ) : (
               <ScrollView
                 style={styles.modalContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
               >
-                {/* Amount Input */}
+                {scannedData && (
+                  <View style={styles.recipientCard}>
+                    <Ionicons name="person-circle" size={60} color="#fff" />
+                    <Text style={styles.recipientCardName}>
+                      {recipientName}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.changeRecipientBtn}
+                      onPress={() => {
+                        setScannedData(null);
+                        setRecipientName("");
+                      }}
+                    >
+                      <Text style={styles.changeRecipientText}>Change</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {!scannedData && (
+                  <TouchableOpacity
+                    style={styles.qrScanBtn}
+                    onPress={startScanning}
+                  >
+                    <Ionicons
+                      name="qr-code-outline"
+                      size={24}
+                      color="#fff"
+                      style={{ marginRight: 10 }}
+                    />
+                    <Text style={styles.qrScanText}>Scan QR Code</Text>
+                  </TouchableOpacity>
+                )}
+
+                {!scannedData && (
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                )}
+
+                {!scannedData && (
+                  <View style={styles.inputSection}>
+                    <Text style={styles.inputLabel}>Phone Number</Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons
+                        name="call-outline"
+                        size={20}
+                        color="#888"
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="Enter phone number"
+                        placeholderTextColor="#555"
+                        keyboardType="phone-pad"
+                        value={recipientPhone}
+                        onChangeText={setRecipientPhone}
+                      />
+                    </View>
+                  </View>
+                )}
+
                 <View style={styles.amountSection}>
                   <Text style={styles.amountLabel}>Amount</Text>
                   <View style={styles.amountInputContainer}>
@@ -458,96 +789,65 @@ export default function IndexScreen() {
                     <TextInput
                       style={styles.amountInput}
                       placeholder="0"
-                      placeholderTextColor="#d0d0d0"
+                      placeholderTextColor="#555"
                       keyboardType="decimal-pad"
                       value={amount}
                       onChangeText={setAmount}
                       maxLength={10}
                     />
-                    <Text style={styles.currencyCode}>BTC</Text>
                   </View>
                   <Text style={styles.availableBalance}>
                     Available: ${formatBalance(balance)}
                   </Text>
                 </View>
 
-                {/* Recipient Phone Input */}
                 <View style={styles.inputSection}>
-                  <Text style={styles.inputLabel}>To</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons
-                      name="call-outline"
-                      size={20}
-                      color="#666"
-                      style={styles.inputIcon}
-                    />
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="Recipient's phone number"
-                      placeholderTextColor="#999"
-                      keyboardType="phone-pad"
-                      value={recipientPhone}
-                      onChangeText={setRecipientPhone}
-                    />
-                  </View>
-                </View>
-
-                {/* Reason Input */}
-                <View style={styles.inputSection}>
-                  <Text style={styles.inputLabel}>What's this for?</Text>
+                  <Text style={styles.inputLabel}>Note (optional)</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="chatbubble-outline"
                       size={20}
-                      color="#666"
+                      color="#888"
                       style={styles.inputIcon}
                     />
                     <TextInput
                       style={styles.textInput}
-                      placeholder="Add a note (optional)"
-                      placeholderTextColor="#999"
+                      placeholder="What's this for?"
+                      placeholderTextColor="#555"
                       value={reason}
                       onChangeText={setReason}
                       maxLength={100}
                     />
                   </View>
                 </View>
-
-                {/* Info Card */}
-                <View style={styles.infoCard}>
-                  <Ionicons
-                    name="information-circle"
-                    size={24}
-                    color="#007AFF"
-                  />
-                  <Text style={styles.infoText}>
-                    Transfers are instant and secure. The recipient will receive
-                    the money immediately.
-                  </Text>
-                </View>
               </ScrollView>
             )}
 
-            {/* Bottom Button */}
-            {!transferSuccess && (
+            {!transferSuccess && !scanning && (
               <View style={styles.modalBottom}>
                 <TouchableOpacity
                   style={[
                     styles.sendButton,
-                    (transferLoading || !amount || !recipientPhone) &&
-                      styles.sendButtonDisabled,
+                    (transferLoading ||
+                      !amount ||
+                      (!scannedData && !recipientPhone)) &&
+                    styles.sendButtonDisabled,
                   ]}
                   onPress={handleTransfer}
-                  disabled={transferLoading || !amount || !recipientPhone}
+                  disabled={
+                    transferLoading ||
+                    !amount ||
+                    (!scannedData && !recipientPhone)
+                  }
                 >
                   {transferLoading ? (
-                    <ActivityIndicator color="#fff" size="small" />
+                    <ActivityIndicator color="#000" size="small" />
                   ) : (
                     <>
                       <Ionicons
                         name="send"
                         size={22}
-                        color="#fff"
+                        color="#000"
                         style={{ marginRight: 8 }}
                       />
                       <Text style={styles.sendButtonText}>
@@ -562,7 +862,7 @@ export default function IndexScreen() {
         </Animated.View>
       </Modal>
 
-      {/* MODAL FULL CARD */}
+      {/* CARD MODAL */}
       <Modal visible={modalVisible} transparent>
         <Animated.View
           style={[
@@ -580,20 +880,29 @@ export default function IndexScreen() {
             },
           ]}
         >
-          <TouchableOpacity onPress={closeModal} style={styles.closeBtn}>
-            <Ionicons name="arrow-back" size={30} color="#fff" />
-          </TouchableOpacity>
+          <View style={styles.modalTopBar}>
+            <TouchableOpacity onPress={closeModal} style={styles.closeBtn}>
+              <Ionicons name="close" size={30} color="#fff" />
+            </TouchableOpacity>
 
-          <TouchableOpacity onPress={flipCard} style={styles.flipIcon}>
-            <Ionicons
-              name={flipped ? "card" : "card-outline"}
-              size={30}
-              color="#fff"
-            />
-          </TouchableOpacity>
+            <View style={styles.modalActions}>
+              {!showQR && (
+                <TouchableOpacity onPress={flipCard} style={styles.actionBtn}>
+                  <Ionicons
+                    name={flipped ? "card" : "card-outline"}
+                    size={24}
+                    color="#fff"
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
 
-          <View style={styles.modalCardWrapper}>
-            {/* FRONT */}
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={flipCard}
+            style={styles.modalCardWrapper}
+          >
             <Animated.View
               style={[
                 styles.fullCard,
@@ -633,7 +942,6 @@ export default function IndexScreen() {
               </ImageBackground>
             </Animated.View>
 
-            {/* BACK */}
             <Animated.View
               style={[
                 styles.fullCard,
@@ -656,7 +964,48 @@ export default function IndexScreen() {
                 </View>
               </ImageBackground>
             </Animated.View>
-          </View>
+          </TouchableOpacity>
+
+          {!flipped && (
+            <View style={styles.copyContainer}>
+              <TouchableOpacity
+                style={styles.copyBtn}
+                onPress={copyCardNumber}
+              >
+                <Ionicons
+                  name={copied ? "checkmark" : "copy-outline"}
+                  size={20}
+                  color="#000"
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.copyBtnText}>
+                  {copied ? "Copied!" : "Copy Number"}
+                </Text>
+              </TouchableOpacity>
+
+              <Animated.View
+                style={[
+                  styles.copyFeedback,
+                  {
+                    opacity: copyAnim,
+                    transform: [
+                      {
+                        translateY: copyAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [20, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <Ionicons name="checkmark-circle" size={20} color="#34C759" />
+                <Text style={styles.copyFeedbackText}>
+                  Number copied to clipboard
+                </Text>
+              </Animated.View>
+            </View>
+          )}
         </Animated.View>
       </Modal>
     </View>
@@ -666,57 +1015,533 @@ export default function IndexScreen() {
 /* STYLES */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000", padding: 20 },
-  transferBtn: { flexDirection: "row", alignItems: "center", backgroundColor: "#000000ff", borderRadius: 14, paddingVertical: 12, paddingHorizontal: 30, marginTop: 26, alignSelf: "center" },
-  transferText: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  fullScreenModal: { flex: 1, backgroundColor: "#f8f9fa" },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: Platform.OS === "ios" ? 60 : 40, paddingBottom: 20, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#e8e8e8" },
-  modalCloseBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  modalHeaderTitle: { fontSize: 20, fontWeight: "700", color: "#000", letterSpacing: 0.3 },
-  modalContent: { flex: 1, paddingHorizontal: 20 },
-  amountSection: { alignItems: "center", paddingVertical: 40, backgroundColor: "#fff", borderRadius: 24, marginTop: 20, marginBottom: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-  amountLabel: { fontSize: 16, color: "#666", fontWeight: "500", marginBottom: 12 },
-  amountInputContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  currencySymbol: { fontSize: 48, fontWeight: "700", color: "#000", marginRight: 8 },
-  amountInput: { fontSize: 56, fontWeight: "700", color: "#000", minWidth: 100, textAlign: "center", padding: 0 },
-  currencyCode: { fontSize: 24, fontWeight: "600", color: "#999", marginLeft: 8 },
-  availableBalance: { fontSize: 14, color: "#999", marginTop: 16, fontWeight: "500" },
-  inputSection: { marginBottom: 24 },
-  inputLabel: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 10, marginLeft: 4 },
-  inputWrapper: { flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderRadius: 16, paddingHorizontal: 16, paddingVertical: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2 },
-  inputIcon: { marginRight: 12 },
-  textInput: { flex: 1, fontSize: 16, color: "#000", paddingVertical: 16, fontWeight: "500" },
-  infoCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#E8F4FF", borderRadius: 16, padding: 16, marginBottom: 20 },
-  infoText: { flex: 1, fontSize: 13, color: "#007AFF", marginLeft: 12, lineHeight: 18, fontWeight: "500" },
-  modalBottom: { padding: 20, paddingBottom: Platform.OS === "ios" ? 34 : 20, backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#e8e8e8" },
-  sendButton: { backgroundColor: "#000", borderRadius: 16, paddingVertical: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 5 },
-  sendButtonDisabled: { backgroundColor: "#ccc" },
-  sendButtonText: { color: "#fff", fontSize: 18, fontWeight: "700", letterSpacing: 0.5 },
-  successContainer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 },
-  successCheckmark: { width: 120, height: 120, borderRadius: 60, backgroundColor: "#34C759", alignItems: "center", justifyContent: "center", marginBottom: 30, shadowColor: "#34C759", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 8 },
-  successTitle: { fontSize: 28, fontWeight: "700", color: "#000", marginBottom: 16 },
-  successAmount: { fontSize: 48, fontWeight: "800", color: "#34C759", marginBottom: 12 },
-  successRecipient: { fontSize: 18, color: "#666", fontWeight: "500", marginBottom: 8 },
-  successReason: { fontSize: 16, color: "#999", fontStyle: "italic", marginTop: 8, textAlign: "center" },
-  cardContainer: { marginTop: 20, width: width * 0.85, height: 190, borderRadius: 20, overflow: "hidden", alignSelf: "center" },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardContainer: {
+    width: width * 0.9,
+    height: 200,
+    borderRadius: 20,
+    overflow: "hidden",
+    alignSelf: "center",
+    marginTop: Platform.OS === "ios" ? -20 : 20, // ⬆️ MÁS ARRIBA (era 60/40)
+    marginBottom: 20, // ⬆️ Menos espacio abajo (era 30)
+  },
   cardBg: { flex: 1, padding: 20, justifyContent: "space-between" },
   logo: { width: 70, height: 40, alignSelf: "flex-end" },
-  cardNumber: { color: "#fff", fontSize: 20, fontFamily: "monospace", letterSpacing: 3, textAlign: "center" },
+  cardNumber: {
+    color: "#fff",
+    fontSize: 22,
+    fontFamily: "monospace",
+    letterSpacing: 3,
+    textAlign: "center",
+    fontWeight: "600",
+  },
   cardBottom: { flexDirection: "row", justifyContent: "space-between" },
-  label: { color: "#fff", fontSize: 12, opacity: 0.7 },
-  valueDark: { color: "#fff", fontSize: 18, fontWeight: "600" },
-  modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center", alignItems: "center" },
-  closeBtn: { position: "absolute", top: 50, left: 20, zIndex: 10 },
-  flipIcon: { position: "absolute", top: 50, right: 20, zIndex: 10 },
-  modalCardWrapper: { width: height * 0.7, height: width * 0.88, transform: [{ rotate: "90deg" }] },
-  fullCard: { position: "absolute", width: "100%", height: "100%", backfaceVisibility: "hidden" },
+  label: { color: "#fff", fontSize: 11, opacity: 0.7, marginBottom: 4 },
+  valueDark: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  actionsContainer: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 10,
+    marginTop: 410, // ⬆️ Sin marginTop extra
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    paddingVertical: 14,
+    shadowColor: "#000", // ✨ Sombra añadida
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  transferButton: {
+    backgroundColor: "#fff",
+  },
+  receiveButton: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  actionButtonText: { color: "#000", fontSize: 18, fontWeight: "700" },
+  qrReceiveModal: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  qrReceiveHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingBottom: 20,
+  },
+  qrReceiveTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
+  qrReceiveContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+  qrWrapper: { position: "relative", marginBottom: 30 },
+  qrInner: {
+    backgroundColor: "#fff",
+    padding: 20,
+    borderRadius: 24,
+    shadowColor: "#fff",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  qrCorner: {
+    position: "absolute",
+    width: 24,
+    height: 24,
+    borderColor: "#fff",
+    borderWidth: 3,
+  },
+  qrCornerTL: {
+    top: -8,
+    left: -8,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+  },
+  qrCornerTR: {
+    top: -8,
+    right: -8,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+  },
+  qrCornerBL: {
+    bottom: -8,
+    left: -8,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+  },
+  qrCornerBR: {
+    bottom: -8,
+    right: -8,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+  },
+  qrReceiveName: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 30,
+    textAlign: "center",
+  },
+  qrInfoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  qrInfoText: { flex: 1, fontSize: 13, color: "#fff", lineHeight: 18 },
+  fullScreenModal: { flex: 1, backgroundColor: "#000" },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#222",
+  },
+  modalCloseBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalHeaderTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
+  modalContent: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+  recipientCard: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  recipientCardName: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  changeRecipientBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 12,
+  },
+  changeRecipientText: { fontSize: 14, fontWeight: "600", color: "#fff" },
+  qrScanBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 16,
+    paddingVertical: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+  },
+  qrScanText: { fontSize: 16, fontWeight: "600", color: "#fff" },
+  divider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: "#333" },
+  dividerText: {
+    fontSize: 14,
+    color: "#666",
+    marginHorizontal: 16,
+    fontWeight: "600",
+  },
+  inputSection: { marginBottom: 20 },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#888",
+    marginBottom: 8,
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  inputIcon: { marginRight: 12 },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#fff",
+    paddingVertical: 16,
+    fontWeight: "500",
+  },
+  amountSection: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    paddingVertical: 30,
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  amountLabel: { fontSize: 14, color: "#888", marginBottom: 12 },
+  amountInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  currencySymbol: {
+    fontSize: 40,
+    fontWeight: "700",
+    color: "#fff",
+    marginRight: 8,
+  },
+  amountInput: {
+    fontSize: 48,
+    fontWeight: "700",
+    color: "#fff",
+    minWidth: 100,
+    textAlign: "center",
+    padding: 0,
+  },
+  availableBalance: {
+    fontSize: 13,
+    color: "#888",
+    marginTop: 12,
+    fontWeight: "500",
+  },
+  modalBottom: {
+    padding: 20,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    borderTopWidth: 1,
+    borderTopColor: "#222",
+  },
+  sendButton: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendButtonDisabled: { backgroundColor: "#333" },
+  sendButtonText: {
+    color: "#000",
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  successContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 40,
+  },
+  successCheckmark: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#34C759",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 30,
+  },
+  successTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  successAmount: {
+    fontSize: 48,
+    fontWeight: "800",
+    color: "#34C759",
+    marginBottom: 12,
+  },
+  successRecipient: {
+    fontSize: 18,
+    color: "#888",
+    fontWeight: "500",
+    marginBottom: 8,
+  },
+  successReason: {
+    fontSize: 16,
+    color: "#666",
+    fontStyle: "italic",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  scannerContainer: { flex: 1 },
+  camera: { flex: 1 },
+  scanOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scanFrame: {
+    width: 240,
+    height: 240,
+    position: "relative",
+    backgroundColor: "transparent",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.3)",
+    borderRadius: 20,
+  },
+  scanLine: {
+    position: "absolute",
+    width: "100%",
+    height: 3,
+    backgroundColor: "#fff",
+    shadowColor: "#fff",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+  },
+  scanCorner: {
+    position: "absolute",
+    width: 30,
+    height: 30,
+    borderColor: "#fff",
+    borderWidth: 4,
+  },
+  scanCornerTL: {
+    top: -2,
+    left: -2,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 20,
+  },
+  scanCornerTR: {
+    top: -2,
+    right: -2,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+    borderTopRightRadius: 20,
+  },
+  scanCornerBL: {
+    bottom: -2,
+    left: -2,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 20,
+  },
+  scanCornerBR: {
+    bottom: -2,
+    right: -2,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+    borderBottomRightRadius: 20,
+  },
+  scanText: {
+    fontSize: 16,
+    color: "#fff",
+    marginTop: 30,
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  cancelScanBtn: {
+    marginTop: 40,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 12,
+  },
+  cancelScanText: { fontSize: 16, color: "#fff", fontWeight: "600" },
+  modalBg: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalTopBar: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 60 : 40,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  closeBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalActions: { flexDirection: "row", gap: 12 },
+  actionBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCardWrapper: {
+    width: height * 0.65,
+    height: width * 0.85,
+    transform: [{ rotate: "90deg" }],
+  },
+  fullCard: {
+    position: "absolute",
+    width: "100%",
+    height: "100%",
+    backfaceVisibility: "hidden",
+  },
   fullCardBack: { transform: [{ rotateY: "180deg" }] },
-  fullCardBg: { flex: 1, padding: 30, justifyContent: "space-between", borderRadius: 20, overflow: "hidden" },
-  numberPlate: { alignSelf: "center", backgroundColor: "rgba(0, 0, 0, 0.08)", paddingVertical: 8, paddingHorizontal: 20, borderRadius: 12, marginTop: 10, minWidth: "80%", alignItems: "center", justifyContent: "center" },
+  fullCardBg: {
+    flex: 1,
+    padding: 30,
+    justifyContent: "space-between",
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  numberPlate: {
+    alignSelf: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    marginTop: 20,
+    minWidth: "85%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
   fullLogo: { width: 120, height: 60, alignSelf: "flex-end" },
-  fullNumber: { color: "#fff", fontSize: 35, fontFamily: "monospace", letterSpacing: 7, textAlign: "center" },
-  valueDarkModal: { color: "#fff", fontSize: 20, fontWeight: "700" },
-  blackStrip: { height: 40, backgroundColor: "#000", marginTop: 15, borderRadius: 4 },
-  cvvRow: { backgroundColor: "#fff", borderRadius: 6, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 12, alignItems: "center", height: 40, marginTop: 30 },
+  fullNumber: {
+    color: "#fff",
+    fontSize: 32,
+    fontFamily: "monospace",
+    letterSpacing: 6,
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  valueDarkModal: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  blackStrip: {
+    height: 50,
+    backgroundColor: "#000",
+    marginTop: 20,
+    borderRadius: 6,
+  },
+  cvvRow: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    alignItems: "center",
+    height: 45,
+    marginTop: 40,
+  },
   cvvLabel: { color: "#000", fontWeight: "700", fontSize: 14 },
-  cvvValue: { color: "#000", fontWeight: "600", fontSize: 16 },
+  cvvValue: { color: "#000", fontWeight: "600", fontSize: 18 },
+  copyContainer: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 60 : 40,
+    alignSelf: "center",
+    alignItems: "center",
+  },
+  copyBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+  },
+  copyBtnText: { fontSize: 16, fontWeight: "700", color: "#000" },
+  copyFeedback: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(52, 199, 89, 0.2)",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#34C759",
+  },
+  copyFeedbackText: { fontSize: 13, color: "#34C759", fontWeight: "600" },
 });

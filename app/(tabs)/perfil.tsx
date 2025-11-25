@@ -1,13 +1,12 @@
 ﻿import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { signOut } from "firebase/auth";
 import {
   collection,
   doc,
   getDoc,
-  getDocs,
-  limit,
   onSnapshot,
   orderBy,
   query,
@@ -16,17 +15,22 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   Animated,
+  Dimensions,
   Easing,
-  FlatList,
   Image,
   RefreshControl,
+  ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import Svg, { Circle, Defs, Line, Path, Stop, LinearGradient as SvgLinearGradient, Text as SvgText } from "react-native-svg";
 import { useAuth } from "../../utils/ctx";
 import { auth, db } from "../../utils/firebase";
+
+const { width } = Dimensions.get("window");
 
 interface Transaction {
   id: string;
@@ -38,6 +42,164 @@ interface Transaction {
   fecha: any;
   estado: "completado" | "pendiente" | "fallido";
 }
+
+interface DayData {
+  date: string;
+  gastos: number;
+  ingresos: number;
+  transacciones: number;
+}
+
+// 🎨 CUSTOM LINE CHART COMPONENT
+const CustomLineChart = ({ data, width, height }: { data: DayData[]; width: number; height: number }) => {
+  const padding = { top: 20, bottom: 30, left: 10, right: 10 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  // Calcular valores máximo y mínimo
+  const values = data.map(d => d.gastos);
+  const maxValue = Math.max(...values, 10);
+  const minValue = 0;
+
+  // Crear puntos del gráfico
+  const points = data.map((d, index) => {
+    const x = padding.left + (index / (data.length - 1)) * chartWidth;
+    const y = padding.top + chartHeight - ((d.gastos - minValue) / (maxValue - minValue)) * chartHeight;
+    return { x, y, value: d.gastos, date: d.date };
+  });
+
+  // Crear path para la línea con curvas suaves (Bezier)
+  const createSmoothPath = () => {
+    if (points.length === 0) return "";
+
+    let path = `M ${points[0].x} ${points[0].y}`;
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const current = points[i];
+      const next = points[i + 1];
+      const controlX = (current.x + next.x) / 2;
+
+      path += ` Q ${controlX} ${current.y}, ${(current.x + next.x) / 2} ${(current.y + next.y) / 2}`;
+      path += ` Q ${controlX} ${next.y}, ${next.x} ${next.y}`;
+    }
+
+    return path;
+  };
+
+  // Crear área de relleno
+  const createAreaPath = () => {
+    const linePath = createSmoothPath();
+    const bottomY = padding.top + chartHeight;
+    return `${linePath} L ${points[points.length - 1].x} ${bottomY} L ${points[0].x} ${bottomY} Z`;
+  };
+
+  const hasData = values.some(v => v > 0);
+
+  if (!hasData) {
+    return (
+      <View style={{ width, height, justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name="analytics-outline" size={64} color="#333" />
+        <Text style={{ fontSize: 16, fontWeight: '700', color: '#666', marginTop: 16 }}>
+          Sin datos de gastos
+        </Text>
+        <Text style={{ fontSize: 13, color: "#444", marginTop: 8, textAlign: 'center' }}>
+          Realiza transacciones para ver estadísticas
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Svg width={width} height={height}>
+      <Defs>
+        <SvgLinearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0%" stopColor="#ff4757" stopOpacity="0.3" />
+          <Stop offset="100%" stopColor="#ff4757" stopOpacity="0.05" />
+        </SvgLinearGradient>
+      </Defs>
+
+      {/* Grid lines horizontales */}
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => {
+        const y = padding.top + chartHeight * ratio;
+        return (
+          <Line
+            key={`grid-${index}`}
+            x1={padding.left}
+            y1={y}
+            x2={padding.left + chartWidth}
+            y2={y}
+            stroke="#222"
+            strokeWidth="1"
+            strokeDasharray="4,4"
+          />
+        );
+      })}
+
+      {/* Área de relleno con gradiente */}
+      <Path
+        d={createAreaPath()}
+        fill="url(#gradient)"
+      />
+
+      {/* Línea principal */}
+      <Path
+        d={createSmoothPath()}
+        stroke="#ff4757"
+        strokeWidth="3"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Puntos en la línea */}
+      {points.map((point, index) => {
+        if (point.value === 0) return null;
+        const isMax = point.value === Math.max(...values);
+
+        return (
+          <React.Fragment key={`point-${index}`}>
+            <Circle
+              cx={point.x}
+              cy={point.y}
+              r={isMax ? 8 : 6}
+              fill="#1a1a1a"
+              stroke="#ff4757"
+              strokeWidth={isMax ? 3 : 2}
+            />
+            {isMax && (
+              <Circle
+                cx={point.x}
+                cy={point.y}
+                r={3}
+                fill="#ff4757"
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+
+      {/* Labels del eje X (días) */}
+      {points.map((point, index) => {
+        if (index % 2 !== 0 && data.length > 7) return null;
+
+        const day = new Date(point.date).getDate();
+        return (
+          <SvgText
+            key={`label-${index}`}
+            x={point.x}
+            y={height - 10}
+            fontSize="11"
+            fill="#666"
+            textAnchor="middle"
+            fontWeight="600"
+          >
+            {day}
+          </SvgText>
+        );
+      })}
+    </Svg>
+  );
+};
 
 export default function PerfilScreen() {
   const { user } = useAuth();
@@ -52,15 +214,12 @@ export default function PerfilScreen() {
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
+  const chartAnim = useRef(new Animated.Value(0)).current;
 
-  // Load user data - memoized
+  // Load user data
   const loadUserData = useCallback(async () => {
-    if (!user) {
-      console.log("❌ No user authenticated");
-      return;
-    }
+    if (!user) return;
     try {
-      console.log("🔍 Loading user data for:", user.uid);
       const userDoc = await getDoc(doc(db, "usuarios", user.uid));
       if (userDoc.exists()) {
         const data = userDoc.data();
@@ -72,84 +231,47 @@ export default function PerfilScreen() {
         );
         setUserPhone(data.celular || "");
         setCardCount(data.tarjeta ? 1 : 0);
-        console.log("✅ User data loaded:", {
-          balance: data.balance,
-          name: `${data.nombre} ${data.apellido}`,
-        });
       }
     } catch (error) {
-      console.error("❌ Error loading user data:", error);
+      console.error("Error loading user:", error);
       setBalance(0);
     }
   }, [user]);
 
-  // Load transactions from Firestore - memoized
-  const loadTransactions = useCallback(async () => {
-    if (!user) {
-      console.log("❌ No user for transactions");
-      return;
-    }
-    try {
-      console.log("🔍 Loading transactions for user:", user.uid);
-      const transactionsRef = collection(
-        db,
-        "usuarios",
-        user.uid,
-        "transacciones"
-      );
-      console.log("📂 Collection path:", `usuarios/${user.uid}/transacciones`);
-
-      const q = query(transactionsRef, orderBy("fecha", "desc"), limit(20));
-      const querySnapshot = await getDocs(q);
-
-      console.log("📊 Documents found:", querySnapshot.size);
-
-      const loadedTransactions: Transaction[] = [];
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        console.log("📄 Transaction:", docSnap.id, data);
-        loadedTransactions.push({ id: docSnap.id, ...data } as Transaction);
-      });
-
-      setTransactions(loadedTransactions);
-      console.log("✅ Transactions loaded:", loadedTransactions.length);
-    } catch (error) {
-      console.error("❌ Error loading transactions:", error);
-      setTransactions([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  // Pull to refresh - memoized
+  // Pull to refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await Promise.all([loadUserData(), loadTransactions()]);
+    await loadUserData();
     setRefreshing(false);
-  }, [loadUserData, loadTransactions]);
+  }, [loadUserData]);
 
-  // Initial load - runs only once when user changes
+  // Initial animations
   useEffect(() => {
     let isMounted = true;
 
     const initialize = async () => {
       await loadUserData();
-      await loadTransactions();
 
-      // Animate in only if component is still mounted
       if (isMounted) {
         Animated.parallel([
           Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 600,
-            easing: Easing.out(Easing.ease),
+            duration: 800,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.spring(slideAnim, {
             toValue: 0,
-            tension: 50,
-            friction: 7,
+            tension: 40,
+            friction: 8,
+            useNativeDriver: true,
+          }),
+          Animated.timing(chartAnim, {
+            toValue: 1,
+            duration: 1200,
+            delay: 400,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
         ]).start();
@@ -165,7 +287,7 @@ export default function PerfilScreen() {
     };
   }, [user]);
 
-  // Real-time listener for balance updates
+  // Real-time balance listener
   useEffect(() => {
     if (!user) return;
 
@@ -175,18 +297,14 @@ export default function PerfilScreen() {
         if (docSnap.exists()) {
           const data = docSnap.data();
           setBalance(typeof data.balance === "number" ? data.balance : 0);
-          console.log("💰 Balance updated:", data.balance);
         }
-      },
-      (error) => {
-        console.error("❌ Error listening to balance:", error);
       }
     );
 
     return () => unsubscribe();
   }, [user]);
 
-  // Real-time listener for transactions updates
+  // Real-time transactions listener
   useEffect(() => {
     if (!user) return;
 
@@ -196,35 +314,26 @@ export default function PerfilScreen() {
       user.uid,
       "transacciones"
     );
-    const q = query(transactionsRef, orderBy("fecha", "desc"), limit(20));
+    const q = query(transactionsRef, orderBy("fecha", "desc"));
 
-    const unsubscribe = onSnapshot(
-      q,
-      (querySnapshot) => {
-        const loadedTransactions: Transaction[] = [];
-        querySnapshot.forEach((docSnap) => {
-          loadedTransactions.push({
-            id: docSnap.id,
-            ...docSnap.data(),
-          } as Transaction);
-        });
-        setTransactions(loadedTransactions);
-        console.log(
-          "🔄 Transactions updated in real-time:",
-          loadedTransactions.length
-        );
-      },
-      (error) => {
-        console.error("❌ Error listening to transactions:", error);
-      }
-    );
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const loadedTransactions: Transaction[] = [];
+      querySnapshot.forEach((docSnap) => {
+        loadedTransactions.push({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as Transaction);
+      });
+      setTransactions(loadedTransactions);
+      setLoading(false);
+    });
 
     return () => unsubscribe();
   }, [user]);
 
-  // Logout - memoized
+  // Logout
   const logout = useCallback(async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Alert.alert("Cerrar sesión", "¿Estás seguro?", [
       { text: "Cancelar", style: "cancel" },
       {
@@ -242,612 +351,568 @@ export default function PerfilScreen() {
     ]);
   }, []);
 
-  // Handle icon buttons
-  const handleHelpPress = useCallback(async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // No hace nada - solo visual
-  }, []);
+  // Process chart data - últimos 10 días
+  const chartData = useMemo(() => {
+    const last10Days: DayData[] = [];
+    const today = new Date();
 
-  const handleCallPress = useCallback(async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // No hace nada - solo visual
-  }, []);
+    for (let i = 9; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split("T")[0];
 
-  // Get transaction icon - memoized
-  const getTransactionIcon = useCallback((tipo: string): string => {
-    switch (tipo) {
-      case "envio":
-        return "arrow-up-circle";
-      case "recepcion":
-        return "arrow-down-circle";
-      case "recarga":
-        return "add-circle";
-      case "pago":
-        return "card";
-      default:
-        return "swap-horizontal";
+      last10Days.push({
+        date: dateStr,
+        gastos: 0,
+        ingresos: 0,
+        transacciones: 0,
+      });
     }
-  }, []);
 
-  // Get transaction color - memoized
-  const getTransactionColor = useCallback((tipo: string): string => {
-    switch (tipo) {
-      case "envio":
-      case "pago":
-        return "#FF3B30";
-      case "recepcion":
-      case "recarga":
-        return "#34C759";
-      default:
-        return "#bbb";
-    }
-  }, []);
+    transactions.forEach((t) => {
+      if (!t.fecha || t.estado !== "completado") return;
 
-  // Format date - memoized
-  const formatDate = useCallback((timestamp: any): string => {
-    if (!timestamp) return "";
-    try {
-      const date =
-        timestamp.toDate instanceof Function
-          ? timestamp.toDate()
-          : new Date(timestamp);
-      return new Intl.DateTimeFormat("es-ES", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }).format(date);
-    } catch {
-      return "";
-    }
-  }, []);
+      try {
+        const transDate =
+          t.fecha.toDate instanceof Function
+            ? t.fecha.toDate()
+            : new Date(t.fecha);
+        const dateStr = transDate.toISOString().split("T")[0];
 
-  // Render skeleton loader - memoized
-  const renderSkeleton = useMemo(
-    () => (
-      <View style={styles.skeletonContainer}>
-        {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.skeletonItem}>
-            <View style={styles.skeletonCircle} />
-            <View style={styles.skeletonTextContainer}>
-              <View style={styles.skeletonText} />
-              <View style={[styles.skeletonText, { width: "60%" }]} />
-            </View>
-          </View>
-        ))}
-      </View>
-    ),
-    []
-  );
+        const dayData = last10Days.find((d) => d.date === dateStr);
+        if (dayData) {
+          dayData.transacciones++;
+          if (t.tipo === "envio" || t.tipo === "pago") {
+            dayData.gastos += t.monto;
+          } else if (t.tipo === "recepcion" || t.tipo === "recarga") {
+            dayData.ingresos += t.monto;
+          }
+        }
+      } catch (e) {
+        console.error("Error processing transaction date:", e);
+      }
+    });
 
-  // Render empty state - memoized
-  const renderEmptyState = useMemo(
-    () => (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="file-tray-outline" size={80} color="#777" />
-        <Text style={styles.emptyTitle}>No hay transacciones</Text>
-        <Text style={styles.emptySubtitle}>
-          Realiza tu primera transferencia para ver el historial aquí
-        </Text>
-      </View>
-    ),
-    []
-  );
+    return last10Days;
+  }, [transactions]);
 
-  // Render transaction item - optimized
-  const renderTransactionItem = useCallback(
-    ({ item, index }: { item: Transaction; index: number }) => (
-      <Animated.View
-        style={[
-          styles.transactionItem,
-          {
-            opacity: fadeAnim,
-            transform: [
-              {
-                translateY: slideAnim.interpolate({
-                  inputRange: [0, 50],
-                  outputRange: [0, 50 + index * 10],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.transactionIcon,
-            {
-              backgroundColor: `${getTransactionColor(item.tipo)}15`,
-            },
-          ]}
-        >
-          <Ionicons
-            name={getTransactionIcon(item.tipo) as any}
-            size={24}
-            color={getTransactionColor(item.tipo)}
-          />
-        </View>
+  // Analytics
+  const analytics = useMemo(() => {
+    const totalGastos = chartData.reduce((sum, d) => sum + d.gastos, 0);
+    const totalIngresos = chartData.reduce((sum, d) => sum + d.ingresos, 0);
+    const promedioGastos = totalGastos / chartData.length;
 
-        <View style={styles.transactionInfo}>
-          <Text style={styles.transactionTitle}>
-            {item.tipo === "envio" && `Enviado a ${item.destinatario}`}
-            {item.tipo === "recepcion" &&
-              `Recibido de ${item.remitente || "Usuario"}`}
-            {item.tipo === "recarga" && "Recarga de saldo"}
-            {item.tipo === "pago" && "Pago realizado"}
-          </Text>
-          <Text style={styles.transactionSubtitle}>
-            {formatDate(item.fecha)}
-            {item.razon ? ` • ${item.razon}` : ""}
-          </Text>
-        </View>
+    const dayWithMaxSpending = chartData.reduce(
+      (max, day) => (day.gastos > max.gastos ? day : max),
+      chartData[0]
+    );
 
-        <View style={styles.transactionRight}>
-          <Text
-            style={[
-              styles.transactionAmount,
-              { color: getTransactionColor(item.tipo) },
-            ]}
-          >
-            {item.tipo === "envio" || item.tipo === "pago" ? "-" : "+"}$
-            {Math.abs(item.monto).toFixed(2)}
-          </Text>
-          <View
-            style={[
-              styles.statusBadge,
-              {
-                backgroundColor:
-                  item.estado === "completado"
-                    ? "#1b5e20"
-                    : item.estado === "pendiente"
-                    ? "#e65100"
-                    : "#b71c1c",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusText,
-                {
-                  color:
-                    item.estado === "completado"
-                      ? "#81c784"
-                      : item.estado === "pendiente"
-                      ? "#ffb74d"
-                      : "#e57373",
-                },
-              ]}
-            >
-              {item.estado === "completado"
-                ? "✓"
-                : item.estado === "pendiente"
-                ? "⏱"
-                : "✗"}
-            </Text>
-          </View>
-        </View>
-      </Animated.View>
-    ),
-    [fadeAnim, slideAnim, getTransactionIcon, getTransactionColor, formatDate]
-  );
+    const diasConGastos = chartData.filter((d) => d.gastos > 0).length;
 
-  // List header component - memoized
-  const ListHeaderComponent = useMemo(
-    () => (
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ translateY: slideAnim }],
-        }}
-      >
-        {/* Header with Avatar */}
-        <View style={styles.header}>
-          <Image
-            source={{
-              uri: "https://cdn-icons-png.flaticon.com/512/4645/4645949.png",
-            }}
-            style={styles.avatar}
-          />
-          <View style={styles.headerText}>
-            <Text style={styles.title}>{userName}</Text>
-            <Text style={styles.email}>{user?.email}</Text>
-            {userPhone ? <Text style={styles.phone}>{userPhone}</Text> : null}
-          </View>
-        </View>
-
-        {/* Balance Card - Featured */}
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Saldo Disponible</Text>
-          <Text style={styles.balanceValue}>
-            ${" "}
-            {balance.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </Text>
-          <Text style={styles.balanceCurrency}>BTC</Text>
-        </View>
-
-        {/* Quick Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="card-outline" size={24} color="#fff" />
-            </View>
-            <Text style={styles.statValue}>{cardCount}</Text>
-            <Text style={styles.statLabel}>Tarjetas</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="swap-horizontal" size={24} color="#fff" />
-            </View>
-            <Text style={styles.statValue}>{transactions.length}</Text>
-            <Text style={styles.statLabel}>Movimientos</Text>
-          </View>
-
-          <View style={styles.statCard}>
-            <View style={styles.statIconContainer}>
-              <Ionicons name="checkmark-circle" size={24} color="#ffffffff" />
-            </View>
-            <Text style={styles.statValue}>
-              {transactions.filter((t) => t.estado === "completado").length}
-            </Text>
-            <Text style={styles.statLabel}>Completados</Text>
-          </View>
-        </View>
-
-        {/* Icon Buttons - Only Logout Works */}
-        <View style={styles.iconButtonsRow}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={handleHelpPress}
-          >
-            <Ionicons name="help-circle-outline" size={28} color="#bbb" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={handleCallPress}
-          >
-            <Ionicons name="call-outline" size={28} color="#bbb" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.iconButtonActive} onPress={logout}>
-            <Ionicons name="log-out-outline" size={28} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Section Title */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Actividad Reciente</Text>
-          {transactions.length > 0 && (
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>Ver todo</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </Animated.View>
-    ),
-    [
-      fadeAnim,
-      slideAnim,
-      userName,
-      user?.email,
-      userPhone,
-      balance,
-      cardCount,
-      transactions.length,
-      handleHelpPress,
-      handleCallPress,
-      logout,
-    ]
-  );
-
-  // NO List footer component (removed logout button)
-  const ListFooterComponent = null;
-
-  // List empty component
-  const ListEmptyComponent = useMemo(
-    () => (loading ? renderSkeleton : renderEmptyState),
-    [loading, renderSkeleton, renderEmptyState]
-  );
-
-  // Key extractor - memoized
-  const keyExtractor = useCallback((item: Transaction) => item.id, []);
+    return {
+      totalGastos,
+      totalIngresos,
+      promedioGastos,
+      maxDay: dayWithMaxSpending,
+      diasActivos: diasConGastos,
+      netChange: totalIngresos - totalGastos,
+    };
+  }, [chartData]);
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={transactions}
-        keyExtractor={keyExtractor}
-        renderItem={renderTransactionItem}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#fff"
-            colors={["#000000ff"]}
-          />
-        }
-        ListHeaderComponent={ListHeaderComponent}
-        ListEmptyComponent={ListEmptyComponent}
-        ListFooterComponent={ListFooterComponent}
-        contentContainerStyle={styles.listContent}
-        removeClippedSubviews={true}
-        maxToRenderPerBatch={10}
-        updateCellsBatchingPeriod={50}
-        initialNumToRender={10}
-        windowSize={10}
-      />
-    </View>
+    <>
+      <StatusBar barStyle="light-content" />
+      <LinearGradient
+        colors={["#000000", "#0a0a0a", "#000000"]}
+        style={styles.container}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#fff"
+            />
+          }
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Header Profile */}
+          <Animated.View
+            style={[
+              styles.profileSection,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <View style={styles.profileHeader}>
+              <View style={styles.avatarContainer}>
+                <Image
+                  source={{
+                    uri: "https://cdn-icons-png.flaticon.com/512/4645/4645949.png",
+                  }}
+                  style={styles.avatar}
+                />
+                <View style={styles.statusDot} />
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={styles.userName}>{userName}</Text>
+                <Text style={styles.userEmail}>{user?.email}</Text>
+                {userPhone ? (
+                  <Text style={styles.userPhone}>{userPhone}</Text>
+                ) : null}
+              </View>
+              <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+                <Ionicons name="power" size={24} color="#ff4757" />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+
+          {/* Balance Card */}
+          <Animated.View
+            style={[
+              styles.balanceCard,
+              {
+                opacity: fadeAnim,
+                transform: [
+                  {
+                    scale: fadeAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.95, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <LinearGradient
+              colors={["#ffffff", "#f0f0f0"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.balanceGradient}
+            >
+              <View style={styles.balanceHeader}>
+                <Text style={styles.balanceLabel}>Balance Disponible</Text>
+                <View style={styles.cardBadge}>
+                  <Ionicons name="shield-checkmark" size={16} color="#2ecc71" />
+                  <Text style={styles.cardBadgeText}>Verificado</Text>
+                </View>
+              </View>
+
+              <Text style={styles.balanceAmount}>
+                ${balance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              </Text>
+
+              <View style={styles.balanceFooter}>
+                <View style={styles.balanceChange}>
+                  <Ionicons
+                    name={
+                      analytics.netChange >= 0
+                        ? "trending-up"
+                        : "trending-down"
+                    }
+                    size={20}
+                    color={analytics.netChange >= 0 ? "#2ecc71" : "#ff4757"}
+                  />
+                  <Text
+                    style={[
+                      styles.balanceChangeText,
+                      {
+                        color:
+                          analytics.netChange >= 0 ? "#2ecc71" : "#ff4757",
+                      },
+                    ]}
+                  >
+                    ${Math.abs(analytics.netChange).toFixed(2)}
+                  </Text>
+                  <Text style={styles.balanceChangePeriod}>últimos 10 días</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+
+          {/* Analytics Cards Grid */}
+          <Animated.View
+            style={[
+              styles.analyticsGrid,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <View style={styles.analyticsCard}>
+              <View style={styles.analyticsIconContainer}>
+                <Ionicons name="arrow-up-circle" size={28} color="#ff4757" />
+              </View>
+              <Text style={styles.analyticsValue}>
+                ${analytics.totalGastos.toFixed(2)}
+              </Text>
+              <Text style={styles.analyticsLabel}>Total Gastado</Text>
+              <Text style={styles.analyticsSubtext}>10 días</Text>
+            </View>
+
+            <View style={styles.analyticsCard}>
+              <View style={styles.analyticsIconContainer}>
+                <Ionicons name="calendar" size={28} color="#ffa502" />
+              </View>
+              <Text style={styles.analyticsValue}>
+                ${analytics.promedioGastos.toFixed(2)}
+              </Text>
+              <Text style={styles.analyticsLabel}>Promedio Diario</Text>
+              <Text style={styles.analyticsSubtext}>
+                {analytics.diasActivos} días activos
+              </Text>
+            </View>
+
+            <View style={styles.analyticsCard}>
+              <View style={styles.analyticsIconContainer}>
+                <Ionicons name="flame" size={28} color="#ff6348" />
+              </View>
+              <Text style={styles.analyticsValue}>
+                ${analytics.maxDay.gastos.toFixed(2)}
+              </Text>
+              <Text style={styles.analyticsLabel}>Día Mayor</Text>
+              <Text style={styles.analyticsSubtext}>
+                {new Date(analytics.maxDay.date).toLocaleDateString("es-ES", {
+                  day: "numeric",
+                  month: "short",
+                })}
+              </Text>
+            </View>
+
+            <View style={styles.analyticsCard}>
+              <View style={styles.analyticsIconContainer}>
+                <Ionicons name="arrow-down-circle" size={28} color="#2ecc71" />
+              </View>
+              <Text style={styles.analyticsValue}>
+                ${analytics.totalIngresos.toFixed(2)}
+              </Text>
+              <Text style={styles.analyticsLabel}>Total Recibido</Text>
+              <Text style={styles.analyticsSubtext}>10 días</Text>
+            </View>
+          </Animated.View>
+
+          {/* Custom Spending Chart */}
+          <Animated.View
+            style={[
+              styles.chartSection,
+              {
+                opacity: chartAnim,
+                transform: [
+                  {
+                    translateY: chartAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [30, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.chartHeader}>
+              <View>
+                <Text style={styles.chartTitle}>Análisis de Gastos</Text>
+                <Text style={styles.chartSubtitle}>
+                  Últimos 10 días de actividad
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.chartFilterBtn}>
+                <Ionicons name="analytics" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.chartContainer}>
+              <CustomLineChart
+                data={chartData}
+                width={width - 80}
+                height={240}
+              />
+            </View>
+          </Animated.View>
+
+          {/* Quick Stats Summary */}
+          <Animated.View
+            style={[
+              styles.statsSection,
+              {
+                opacity: fadeAnim,
+              },
+            ]}
+          >
+            <View style={styles.statRow}>
+              <View style={styles.statItem}>
+                <Ionicons name="card" size={20} color="#666" />
+                <Text style={styles.statItemLabel}>Tarjetas</Text>
+                <Text style={styles.statItemValue}>{cardCount}</Text>
+              </View>
+
+              <View style={styles.statDivider} />
+
+              <View style={styles.statItem}>
+                <Ionicons name="repeat" size={20} color="#666" />
+                <Text style={styles.statItemLabel}>Transacciones</Text>
+                <Text style={styles.statItemValue}>{transactions.length}</Text>
+              </View>
+
+              <View style={styles.statDivider} />
+
+              <View style={styles.statItem}>
+                <Ionicons name="checkmark-circle" size={20} color="#666" />
+                <Text style={styles.statItemLabel}>Completadas</Text>
+                <Text style={styles.statItemValue}>
+                  {
+                    transactions.filter((t) => t.estado === "completado")
+                      .length
+                  }
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </LinearGradient>
+    </>
   );
 }
 
-/* STYLES */
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000000ff",
   },
-  listContent: {
+  scrollContent: {
+    paddingTop: 30, // ⬆️ MÁS ARRIBA (era 60)
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
+    paddingBottom: 120, // ⚠️ Espacio para navbar flotante
   },
-  header: {
+  profileSection: {
+    marginBottom: 20, // ⬆️ Reducido (era 24)
+  },
+  profileHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 24,
+  },
+  avatarContainer: {
+    position: "relative",
+    marginRight: 16,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    marginRight: 16,
-    backgroundColor: "#333",
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     borderWidth: 3,
-    borderColor: "#1e1e1e",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    borderColor: "#1a1a1a",
   },
-  headerText: {
+  statusDot: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#2ecc71",
+    borderWidth: 3,
+    borderColor: "#000",
+  },
+  profileInfo: {
     flex: 1,
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-    color: "#ccc",
-    marginBottom: 2,
-  },
-  phone: {
-    fontSize: 13,
-    color: "#bbb",
-    marginTop: 2,
-  },
-  balanceCard: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 28,
-    marginBottom: 24,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  balanceLabel: {
-    fontSize: 14,
-    color: "#000",
-    opacity: 0.7,
-    marginBottom: 8,
-    fontWeight: "500",
-    letterSpacing: 0.5,
-  },
-  balanceValue: {
-    fontSize: 48,
-    fontWeight: "800",
-    color: "#000",
-    letterSpacing: -1,
-  },
-  balanceCurrency: {
-    fontSize: 16,
-    color: "#000",
-    opacity: 0.6,
-    marginTop: 4,
-    fontWeight: "600",
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 24,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#1e1e1e",
-    padding: 16,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  statIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#2a2a2a",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  statValue: {
+  userName: {
     fontSize: 22,
     fontWeight: "800",
     color: "#fff",
     marginBottom: 4,
   },
-  statLabel: {
+  userEmail: {
+    fontSize: 13,
+    color: "#999",
+    marginBottom: 2,
+  },
+  userPhone: {
     fontSize: 12,
-    color: "#ccc",
-    fontWeight: "500",
+    color: "#666",
   },
-  // ✨ NEW ICON BUTTONS ROW
-  iconButtonsRow: {
-    flexDirection: "row",
+  logoutBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#1a1a1a",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 32,
-    gap: 20,
+    borderWidth: 1,
+    borderColor: "#222",
   },
-  iconButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#1e1e1e",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
+  balanceCard: {
+    marginBottom: 20, // ⬆️ Reducido (era 24)
+    borderRadius: 24,
+    overflow: "hidden",
   },
-  iconButtonActive: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "#9d0800ff",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000000ff",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 5,
+  balanceGradient: {
+    padding: 24,
   },
-  sectionHeader: {
+  balanceHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontWeight: "700",
-    fontSize: 18,
-    color: "#fff",
-  },
-  seeAllText: {
+  balanceLabel: {
     fontSize: 14,
-    color: "#fff",
+    color: "#666",
     fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
-  transactionItem: {
+  cardBadge: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    backgroundColor: "#1e1e1e",
-    borderRadius: 16,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 2,
+    backgroundColor: "#e8f8f0",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  transactionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  cardBadgeText: {
+    fontSize: 11,
+    color: "#2ecc71",
+    fontWeight: "700",
+    marginLeft: 4,
+  },
+  balanceAmount: {
+    fontSize: 48,
+    fontWeight: "900",
+    color: "#000",
+    letterSpacing: -2,
+    marginBottom: 16,
+  },
+  balanceFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
   },
-  transactionInfo: {
-    flex: 1,
+  balanceChange: {
+    flexDirection: "row",
+    alignItems: "center",
   },
-  transactionTitle: {
-    fontWeight: "600",
-    fontSize: 15,
-    color: "#fff",
-    marginBottom: 4,
+  balanceChangeText: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginLeft: 6,
   },
-  transactionSubtitle: {
-    color: "#bbb",
+  balanceChangePeriod: {
     fontSize: 13,
+    color: "#999",
+    marginLeft: 8,
+    fontWeight: "500",
   },
-  transactionRight: {
-    alignItems: "flex-end",
-  },
-  transactionAmount: {
-    fontWeight: "700",
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 60,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#ccc",
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: "#bbb",
-    textAlign: "center",
-    paddingHorizontal: 40,
-  },
-  skeletonContainer: {
-    paddingVertical: 20,
-  },
-  skeletonItem: {
+  analyticsGrid: {
     flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 20, // ⬆️ Reducido (era 24)
+    gap: 12,
+  },
+  analyticsCard: {
+    width: (width - 52) / 2,
+    backgroundColor: "#1a1a1a",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#222",
+  },
+  analyticsIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#0a0a0a",
+    justifyContent: "center",
     alignItems: "center",
-    padding: 16,
-    backgroundColor: "#1e1e1e",
-    borderRadius: 16,
     marginBottom: 12,
   },
-  skeletonCircle: {
-    width: 48,
-    height: 48,
+  analyticsValue: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  analyticsLabel: {
+    fontSize: 13,
+    color: "#999",
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  analyticsSubtext: {
+    fontSize: 11,
+    color: "#666",
+    fontWeight: "500",
+  },
+  chartSection: {
+    backgroundColor: "#1a1a1a",
     borderRadius: 24,
-    backgroundColor: "#333",
-    marginRight: 12,
+    padding: 20,
+    marginBottom: 20, // ⬆️ Reducido (era 24)
+    borderWidth: 1,
+    borderColor: "#222",
   },
-  skeletonTextContainer: {
+  chartHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 24,
+  },
+  chartTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+    marginBottom: 4,
+  },
+  chartSubtitle: {
+    fontSize: 13,
+    color: "#666",
+    fontWeight: "500",
+  },
+  chartFilterBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0a0a0a",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  chartContainer: {
+    alignItems: "center",
+  },
+  statsSection: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#222",
+    marginBottom: 20, // ⬆️ Espacio extra para navbar
+  },
+  statRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  statItem: {
     flex: 1,
+    alignItems: "center",
   },
-  skeletonText: {
-    height: 12,
-    backgroundColor: "#333",
-    borderRadius: 6,
-    marginBottom: 8,
+  statItemLabel: {
+    fontSize: 11,
+    color: "#666",
+    fontWeight: "600",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  statItemValue: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: "#222",
   },
 });

@@ -18,7 +18,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: "#000000ff" }, // 🔥 Fondo naranja
+        headerStyle: { backgroundColor: "#000000ff" }, 
         headerTintColor: "#fff",
         headerTitleStyle: {
           fontWeight: "600",
@@ -39,8 +39,8 @@ export default function TabsLayout() {
           title: "Transactions",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? "swap-horizontal" : "swap-horizontal-outline"}
-              size={32}
+              name={focused ? "receipt" : "receipt-outline"}
+              size={30}
               color={color}
             />
           ),
@@ -52,7 +52,7 @@ export default function TabsLayout() {
           title: "Wallet",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? "card" : "card-outline"}
+              name={focused ? "wallet" : "wallet-outline"}
               size={32}
               color={color}
             />
@@ -65,7 +65,7 @@ export default function TabsLayout() {
           title: "Profile",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? "person-circle" : "person-circle-outline"}
+              name={focused ? "person" : "person-outline"}
               size={32}
               color={color}
             />
@@ -78,7 +78,7 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: "#000000ff", // 🔥 NARANJA brillante
+    backgroundColor: "#000000ff", 
     borderTopWidth: 0,
     elevation: 0,
     height: 65,
