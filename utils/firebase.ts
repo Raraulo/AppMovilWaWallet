@@ -20,4 +20,4 @@ const db = getFirestore(app);
 
 // Exporta para usar en el resto de tu proyecto
 export { app, auth, db };
- 
+

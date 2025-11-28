@@ -1,12 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   Easing,
@@ -25,7 +24,116 @@ import { loginUser, registerUser } from "../utils/authService";
 
 const { width, height } = Dimensions.get("window");
 
-// Lista de dominios de email temporales/desechables comunes
+// 🔥 TOAST FLOTANTE PREMIUM
+const Toast = ({
+  message,
+  type,
+  visible,
+  onHide,
+}: {
+  message: string;
+  type: "success" | "error" | "info" | "warning";
+  visible: boolean;
+  onHide: () => void;
+}) => {
+  const translateY = useRef(new Animated.Value(-100)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(translateY, {
+          toValue: 0,
+          tension: 50,
+          friction: 8,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      const timer = setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: -100,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start(() => onHide());
+      }, 3500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  const colors = {
+    success: ["#34C759", "#2ecc71"],
+    error: ["#ff4757", "#ff6348"],
+    info: ["#5f27cd", "#341f97"],
+    warning: ["#ffa502", "#ff6348"],
+  };
+
+  const icons = {
+    success: "checkmark-circle",
+    error: "close-circle",
+    info: "information-circle",
+    warning: "warning",
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.toastContainer,
+        {
+          transform: [{ translateY }],
+          opacity,
+        },
+      ]}
+    >
+      <LinearGradient
+        colors={colors[type]}
+        style={styles.toastGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Ionicons name={icons[type] as any} size={24} color="#fff" />
+        <Text style={styles.toastText}>{message}</Text>
+      </LinearGradient>
+    </Animated.View>
+  );
+};
+
+// 🔥 TRADUCTOR DE ERRORES FIREBASE
+const getFirebaseErrorMessage = (errorCode: string): string => {
+  const errorMessages: { [key: string]: string } = {
+    "auth/invalid-email": "El correo electrónico no es válido",
+    "auth/user-disabled": "Esta cuenta ha sido deshabilitada",
+    "auth/user-not-found": "No existe una cuenta con este correo",
+    "auth/wrong-password": "Contraseña incorrecta",
+    "auth/email-already-in-use": "Este correo ya está registrado",
+    "auth/weak-password": "La contraseña debe tener al menos 6 caracteres",
+    "auth/invalid-credential": "Credenciales incorrectas. Verifica tu correo y contraseña",
+    "auth/too-many-requests": "Demasiados intentos fallidos. Intenta más tarde",
+    "auth/network-request-failed": "Error de conexión. Verifica tu internet",
+    "auth/operation-not-allowed": "Operación no permitida",
+    "auth/requires-recent-login": "Por seguridad, vuelve a iniciar sesión",
+    "auth/internal-error": "Error interno. Intenta nuevamente",
+  };
+
+  return errorMessages[errorCode] || "Ocurrió un error inesperado";
+};
+
+// Lista de dominios de email temporales/desechables
 const DISPOSABLE_EMAIL_DOMAINS = [
   "tempmail.com",
   "throwaway.email",
@@ -35,15 +143,6 @@ const DISPOSABLE_EMAIL_DOMAINS = [
   "trashmail.com",
   "yopmail.com",
   "temp-mail.org",
-  "fakeinbox.com",
-  "maildrop.cc",
-  "getnada.com",
-  "mohmal.com",
-  "sharklasers.com",
-  "guerrillamail.info",
-  "grr.la",
-  "spam4.me",
-  "getairmail.com",
 ];
 
 export default function LoginScreen() {
@@ -58,10 +157,29 @@ export default function LoginScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [showWelcome, setShowWelcome] = useState(false);
-  const [showSuccessToast, setShowSuccessToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [welcomeStep, setWelcomeStep] = useState(0);
+
+  // 🔥 TOAST STATE
+  const [toast, setToast] = useState({
+    visible: false,
+    message: "",
+    type: "info" as "success" | "error" | "info" | "warning",
+  });
+
+  const showToast = (
+    message: string,
+    type: "success" | "error" | "info" | "warning"
+  ) => {
+    setToast({ visible: true, message, type });
+    Haptics.notificationAsync(
+      type === "success"
+        ? Haptics.NotificationFeedbackType.Success
+        : type === "error"
+          ? Haptics.NotificationFeedbackType.Error
+          : Haptics.NotificationFeedbackType.Warning
+    );
+  };
 
   // Animations
   const splashOpacity = useRef(new Animated.Value(0)).current;
@@ -70,22 +188,18 @@ export default function LoginScreen() {
   const welcomeTranslateX = useRef(new Animated.Value(50)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const contentTranslateY = useRef(new Animated.Value(30)).current;
-  const toastTranslateY = useRef(new Animated.Value(-100)).current;
-  const toastOpacity = useRef(new Animated.Value(0)).current;
   const formTranslateY = useRef(new Animated.Value(0)).current;
 
-  // Validaciones robustas
+  // 🔥 VALIDACIONES MEJORADAS
   const validateEmail = (email: string): boolean => {
-    // Regex estricto para email
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailRegex.test(email)) return false;
 
-    // Verificar que no sea un email temporal/desechable
     const domain = email.split("@")[1]?.toLowerCase();
     if (DISPOSABLE_EMAIL_DOMAINS.includes(domain)) {
-      Alert.alert(
-        "Email no válido",
-        "Por favor usa un correo electrónico permanente. No se permiten emails temporales."
+      showToast(
+        "No se permiten correos temporales. Usa un email permanente",
+        "warning"
       );
       return false;
     }
@@ -93,48 +207,54 @@ export default function LoginScreen() {
     return true;
   };
 
-  // ✅ VALIDACIÓN ACTUALIZADA: 10 DÍGITOS EXACTOS (Ej: 0986503709)
   const validatePhone = (phone: string): boolean => {
-    // Limpiar el teléfono de espacios y caracteres especiales
     const cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
-
-    // Validar exactamente 10 dígitos numéricos
     const phoneRegex = /^\d{10}$/;
     return phoneRegex.test(cleanPhone);
   };
 
   const validateName = (name: string): boolean => {
-    // Solo letras, espacios y acentos
     const nameRegex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/;
     if (!nameRegex.test(name)) {
-      Alert.alert(
-        "Nombre inválido",
-        "El nombre solo puede contener letras y espacios"
-      );
+      showToast("El nombre solo puede contener letras y espacios", "warning");
       return false;
     }
     if (name.trim().length < 2) {
-      Alert.alert("Nombre inválido", "El nombre debe tener al menos 2 caracteres");
+      showToast("El nombre debe tener al menos 2 caracteres", "warning");
       return false;
     }
     return true;
   };
 
-  const validatePassword = (password: string): { valid: boolean; message?: string } => {
+  const validatePassword = (
+    password: string
+  ): { valid: boolean; message?: string } => {
     if (password.length < 8) {
-      return { valid: false, message: "La contraseña debe tener al menos 8 caracteres" };
+      return {
+        valid: false,
+        message: "La contraseña debe tener al menos 8 caracteres",
+      };
     }
     if (!/[A-Z]/.test(password)) {
-      return { valid: false, message: "Debe contener al menos una mayúscula" };
+      return {
+        valid: false,
+        message: "Debe contener al menos una mayúscula",
+      };
     }
     if (!/[a-z]/.test(password)) {
-      return { valid: false, message: "Debe contener al menos una minúscula" };
+      return {
+        valid: false,
+        message: "Debe contener al menos una minúscula",
+      };
     }
     if (!/[0-9]/.test(password)) {
       return { valid: false, message: "Debe contener al menos un número" };
     }
     if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      return { valid: false, message: "Debe contener al menos un carácter especial" };
+      return {
+        valid: false,
+        message: "Debe contener al menos un carácter especial",
+      };
     }
     return { valid: true };
   };
@@ -245,47 +365,6 @@ export default function LoginScreen() {
     }
   }, [showSplash, showWelcome]);
 
-  // Toast animation
-  useEffect(() => {
-    if (showSuccessToast) {
-      Animated.parallel([
-        Animated.spring(toastTranslateY, {
-          toValue: 0,
-          tension: 60,
-          friction: 8,
-          useNativeDriver: true,
-        }),
-        Animated.timing(toastOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      const timer = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(toastTranslateY, {
-            toValue: -100,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-          Animated.timing(toastOpacity, {
-            toValue: 0,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-        ]).start(({ finished }) => {
-          if (finished) {
-            setShowSuccessToast(false);
-            router.replace("/(tabs)");
-          }
-        });
-      }, 2500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [showSuccessToast]);
-
   // Keyboard handling
   useEffect(() => {
     const showSubscription = Keyboard.addListener(
@@ -348,48 +427,45 @@ export default function LoginScreen() {
     }
   };
 
-  // Handle authentication with robust validation
+  // 🔥 HANDLE AUTH CON VALIDACIONES COMPLETAS
   const handleAuth = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     // Validación de campos vacíos
     if (isRegister) {
-      if (!nombre || !apellido || !email || !celular || !password || !confirmPassword) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert("Error", "Completa todos los campos");
+      if (
+        !nombre ||
+        !apellido ||
+        !email ||
+        !celular ||
+        !password ||
+        !confirmPassword
+      ) {
+        showToast("Por favor completa todos los campos", "warning");
         return;
       }
 
-      // Validar nombre y apellido
       if (!validateName(nombre) || !validateName(apellido)) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         return;
       }
 
-      // ✅ Validar teléfono (10 dígitos)
       if (!validatePhone(celular)) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert(
-          "Teléfono inválido",
-          "Ingresa un número de teléfono válido de 10 dígitos (ej: 0986503709)"
+        showToast(
+          "Ingresa un número válido de 10 dígitos (ej: 0986503709)",
+          "warning"
         );
         return;
       }
     } else {
       if (!email || !password) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert("Error", "Completa el correo y la contraseña");
+        showToast("Ingresa tu correo y contraseña", "warning");
         return;
       }
     }
 
     // Validar email
     if (!validateEmail(email)) {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        "Email inválido",
-        "Por favor ingresa un correo electrónico válido"
-      );
+      showToast("Ingresa un correo electrónico válido", "warning");
       return;
     }
 
@@ -397,34 +473,38 @@ export default function LoginScreen() {
     if (isRegister) {
       const passwordValidation = validatePassword(password);
       if (!passwordValidation.valid) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert("Contraseña débil", passwordValidation.message || "");
+        showToast(passwordValidation.message || "Contraseña débil", "warning");
         return;
       }
 
       if (password !== confirmPassword) {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        Alert.alert("Error", "Las contraseñas no coinciden");
+        showToast("Las contraseñas no coinciden", "warning");
         return;
       }
     }
 
     try {
       setLoading(true);
+
       if (isRegister) {
         await registerUser(email, password, nombre, apellido, celular);
-        setToastMessage("Cuenta creada exitosamente");
+        showToast("¡Cuenta creada exitosamente!", "success");
       } else {
         await loginUser(email, password);
-        setToastMessage("Bienvenido de vuelta");
+        showToast("¡Bienvenido de vuelta!", "success");
       }
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShowSuccessToast(true);
-    } catch (error) {
+
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success
+      );
+
+      setTimeout(() => {
+        router.replace("/(tabs)");
+      }, 1000);
+    } catch (error: any) {
+      const friendlyMessage = getFirebaseErrorMessage(error.code);
+      showToast(friendlyMessage, "error");
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Error desconocido";
-      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -436,7 +516,6 @@ export default function LoginScreen() {
     setIsRegister(!isRegister);
   };
 
-  // Toggle password visibility
   const togglePasswordVisibility = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowPassword(!showPassword);
@@ -565,23 +644,13 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-      {/* Success Toast */}
-      {showSuccessToast && (
-        <Animated.View
-          style={[
-            styles.toast,
-            {
-              opacity: toastOpacity,
-              transform: [{ translateY: toastTranslateY }],
-            },
-          ]}
-        >
-          <BlurView intensity={90} tint="dark" style={styles.toastBlur}>
-            <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-            <Text style={styles.toastText}>{toastMessage}</Text>
-          </BlurView>
-        </Animated.View>
-      )}
+      {/* 🔥 TOAST FLOTANTE */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        visible={toast.visible}
+        onHide={() => setToast({ ...toast, visible: false })}
+      />
 
       <KeyboardAwareScrollView
         contentContainerStyle={styles.scrollContent}
@@ -656,7 +725,6 @@ export default function LoginScreen() {
                   </View>
                 </View>
 
-                {/* ✅ TELÉFONO ACTUALIZADO - Placeholder con formato de 10 dígitos */}
                 <View style={styles.inputWrapper}>
                   <Text style={styles.label}>Teléfono</Text>
                   <View style={styles.inputContainer}>
@@ -733,7 +801,9 @@ export default function LoginScreen() {
                       />
                     ))}
                   </View>
-                  <Text style={[styles.strengthText, { color: strength.color }]}>
+                  <Text
+                    style={[styles.strengthText, { color: strength.color }]}
+                  >
                     {strength.label}
                   </Text>
                 </View>
@@ -777,14 +847,18 @@ export default function LoginScreen() {
                           : "close-circle"
                       }
                       size={14}
-                      color={password === confirmPassword ? "#10b981" : "#ef4444"}
+                      color={
+                        password === confirmPassword ? "#10b981" : "#ef4444"
+                      }
                     />
                     <Text
                       style={[
                         styles.matchText,
                         {
                           color:
-                            password === confirmPassword ? "#10b981" : "#ef4444",
+                            password === confirmPassword
+                              ? "#10b981"
+                              : "#ef4444",
                         },
                       ]}
                     >
@@ -799,7 +873,10 @@ export default function LoginScreen() {
 
             {/* Submit Button */}
             <TouchableOpacity
-              style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+              style={[
+                styles.submitButton,
+                loading && styles.submitButtonDisabled,
+              ]}
               onPress={handleAuth}
               disabled={loading}
               activeOpacity={0.9}
@@ -943,30 +1020,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
 
-  // Toast
-  toast: {
+  // 🔥 TOAST STYLES
+  toastContainer: {
     position: "absolute",
     top: Platform.OS === "ios" ? 60 : 40,
-    left: 24,
-    right: 24,
-    zIndex: 999,
-    borderRadius: 12,
+    left: 20,
+    right: 20,
+    zIndex: 9999,
+    borderRadius: 16,
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  toastBlur: {
+  toastGradient: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 12,
   },
   toastText: {
+    flex: 1,
+    color: "#fff",
     fontSize: 14,
     fontWeight: "600",
-    color: "#ffffff",
-    flex: 1,
+    lineHeight: 20,
   },
 
   // Header
@@ -975,8 +1056,8 @@ const styles = StyleSheet.create({
     marginBottom: 48,
   },
   logo: {
-    width: 90,
-    height: 90,
+    width: 200,
+    height: 200,
     marginBottom: 24,
   },
   title: {

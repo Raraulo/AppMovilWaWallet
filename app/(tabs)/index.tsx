@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot, // 🔥 AÑADIDO
   query,
   runTransaction,
   setDoc,
@@ -314,27 +315,43 @@ export default function IndexScreen() {
     startScanLineAnimation();
   };
 
-  // Function to fetch or create user data (including balance)
-  const fetchOrCreateCard = async () => {
+  // 🔥 ACTUALIZACIÓN EN TIEMPO REAL DEL BALANCE
+  useEffect(() => {
     if (!auth.currentUser) return;
-    const ref = doc(db, "usuarios", auth.currentUser.uid);
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const data = snap.data();
-      setBalance(data.balance ?? 0);
-      setUserData(data);
-      if (data.tarjeta) {
-        setCard(data.tarjeta);
-      } else {
-        const newCard = generateCard(
-          data.nombre ? `${data.nombre} ${data.apellido}` : ""
-        );
-        await setDoc(ref, { ...data, tarjeta: newCard }, { merge: true });
-        setCard(newCard);
+
+    // Listener en tiempo real para el balance y datos del usuario
+    const userRef = doc(db, "usuarios", auth.currentUser.uid);
+    const unsubscribe = onSnapshot(
+      userRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setBalance(data.balance ?? 0);
+          setUserData(data);
+
+          // Actualizar tarjeta si existe
+          if (data.tarjeta) {
+            setCard(data.tarjeta);
+          } else {
+            // Crear tarjeta si no existe
+            const newCard = generateCard(
+              data.nombre ? `${data.nombre} ${data.apellido}` : ""
+            );
+            setDoc(userRef, { ...data, tarjeta: newCard }, { merge: true });
+            setCard(newCard);
+          }
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error syncing user data:", error);
+        setLoading(false);
       }
-    }
-    setLoading(false);
-  };
+    );
+
+    // Cleanup al desmontar
+    return () => unsubscribe();
+  }, []);
 
   // Handle transfer (phone or QR)
   const handleTransfer = async () => {
@@ -456,7 +473,7 @@ export default function IndexScreen() {
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
       );
-      await fetchOrCreateCard();
+      // 🔥 Ya no necesitas fetchOrCreateCard() porque onSnapshot lo actualiza automáticamente
       showSuccessAnimation();
     } catch (error) {
       console.error("❌ Error en transferencia:", error);
@@ -468,10 +485,6 @@ export default function IndexScreen() {
       setTransferLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchOrCreateCard();
-  }, []);
 
   const formatBalance = (v: number) =>
     v.toLocaleString("en-US", { minimumFractionDigits: 2 });
@@ -500,7 +513,49 @@ export default function IndexScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* CARD - MÁS ARRIBA */}
+      {/* Welcome Header */}
+      <View style={styles.welcomeHeader}>
+        <View>
+          <Text style={styles.welcomeText}>Welcome back</Text>
+          <Text style={styles.userName}>
+            {userData
+              ? `${userData.nombre || ""} ${userData.apellido || ""}`.trim()
+              : "User"}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.notificationBtn}>
+          <Ionicons name="notifications-outline" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Balance Card */}
+      <TouchableOpacity
+        style={styles.balanceCard}
+        onPress={() => setShowBalance(!showBalance)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.balanceHeader}>
+          <Text style={styles.balanceLabel}>Total Balance</Text>
+          <TouchableOpacity onPress={() => setShowBalance(!showBalance)}>
+            <Ionicons
+              name={showBalance ? "eye-off-outline" : "eye-outline"}
+              size={20}
+              color="rgba(255,255,255,0.7)"
+            />
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.balanceAmount}>
+          {showBalance ? `$${formatBalance(balance)}` : "••••••"}
+        </Text>
+        <View style={styles.balanceFooter}>
+          <View style={styles.balanceChange}>
+            <Ionicons name="trending-up" size={14} color="#34C759" />
+            <Text style={styles.balanceChangeText}>+2.5% this month</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* CARD */}
       <TouchableOpacity
         activeOpacity={0.9}
         onPress={openModal}
@@ -514,6 +569,7 @@ export default function IndexScreen() {
           style={styles.cardBg}
           imageStyle={{ borderRadius: 20 }}
         >
+          <View style={styles.cardOverlay} />
           <Image
             source={{
               uri: "https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_2021.svg",
@@ -537,34 +593,40 @@ export default function IndexScreen() {
         </ImageBackground>
       </TouchableOpacity>
 
-      {/* ACTION BUTTONS - Transfer & Receive */}
+      {/* Quick Actions Title */}
+      <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+      {/* ACTION BUTTONS */}
       <View style={styles.actionsContainer}>
         <TouchableOpacity
           style={[styles.actionButton, styles.transferButton]}
           onPress={openTransferModal}
           disabled={balance <= 0}
         >
-          <Ionicons
-            name="arrow-up-circle-outline"
-            size={22}
-            color="#000"
-            style={{ marginRight: 6 }}
-          />
-          <Text style={styles.actionButtonText}>Transfer</Text>
+          <View style={styles.actionIconWrapper}>
+            <Ionicons name="paper-plane" size={24} color="#000" />
+          </View>
+          <Text style={styles.actionButtonText}>Send</Text>
+          <Text style={styles.actionButtonSubtext}>Transfer money</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.actionButton, styles.receiveButton]}
           onPress={openQRModal}
         >
-          <Ionicons
-            name="download-outline"
-            size={22}
-            color="#fff"
-            style={{ marginRight: 6 }}
-          />
+          <View style={[styles.actionIconWrapper, styles.receiveIconWrapper]}>
+            <Ionicons name="qr-code" size={24} color="#fff" />
+          </View>
           <Text style={[styles.actionButtonText, { color: "#fff" }]}>
             Receive
+          </Text>
+          <Text
+            style={[
+              styles.actionButtonSubtext,
+              { color: "rgba(255,255,255,0.7)" },
+            ]}
+          >
+            Show QR code
           </Text>
         </TouchableOpacity>
       </View>
@@ -587,7 +649,6 @@ export default function IndexScreen() {
             },
           ]}
         >
-          {/* Header */}
           <View style={styles.qrReceiveHeader}>
             <TouchableOpacity onPress={closeQRModal} style={styles.closeBtn}>
               <Ionicons name="close" size={30} color="#fff" />
@@ -596,7 +657,6 @@ export default function IndexScreen() {
             <View style={{ width: 30 }} />
           </View>
 
-          {/* QR Code */}
           <Animated.View
             style={[
               styles.qrReceiveContent,
@@ -1012,26 +1072,136 @@ export default function IndexScreen() {
   );
 }
 
+// ... (TODOS LOS ESTILOS SE MANTIENEN IGUAL)
+
 /* STYLES */
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000", padding: 20 },
+  container: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+    paddingHorizontal: 20,
+  },
   loadingContainer: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "#0a0a0a",
     alignItems: "center",
     justifyContent: "center",
   },
+
+  // Welcome Header
+  welcomeHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: Platform.OS === "ios" ? 70 : 20,
+    paddingBottom: 12,
+  },
+  welcomeText: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  userName: {
+    fontSize: 24,
+    color: "#fff",
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  notificationBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+
+  // Balance Card
+  balanceCard: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  balanceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  balanceLabel: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  balanceFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  balanceChange: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(52, 199, 89, 0.15)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 4,
+  },
+  balanceChangeText: {
+    fontSize: 12,
+    color: "#34C759",
+    fontWeight: "600",
+  },
+
+  // Card Styles
   cardContainer: {
     width: width * 0.9,
     height: 200,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: "hidden",
     alignSelf: "center",
-    marginTop: Platform.OS === "ios" ? -20 : 20, // ⬆️ MÁS ARRIBA (era 60/40)
-    marginBottom: 20, // ⬆️ Menos espacio abajo (era 30)
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  cardBg: { flex: 1, padding: 20, justifyContent: "space-between" },
-  logo: { width: 70, height: 40, alignSelf: "flex-end" },
+  cardBg: {
+    flex: 1,
+    padding: 20,
+    justifyContent: "space-between",
+  },
+  cardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.15)",
+    borderRadius: 24,
+  },
+  logo: {
+    width: 70,
+    height: 40,
+    alignSelf: "flex-end",
+    opacity: 0.95,
+  },
   cardNumber: {
     color: "#fff",
     fontSize: 22,
@@ -1039,38 +1209,88 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     textAlign: "center",
     fontWeight: "600",
+    textShadowColor: "rgba(0,0,0,0.3)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   cardBottom: { flexDirection: "row", justifyContent: "space-between" },
-  label: { color: "#fff", fontSize: 11, opacity: 0.7, marginBottom: 4 },
-  valueDark: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  label: {
+    color: "#fff",
+    fontSize: 11,
+    opacity: 0.7,
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  valueDark: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    textShadowColor: "rgba(0,0,0,0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+
+  // Section Title
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 12,
+    letterSpacing: 0.3,
+  },
+
+  // Action Buttons
   actionsContainer: {
     flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: 10,
-    marginTop: 410, // ⬆️ Sin marginTop extra
+    gap: 16,
+    marginBottom: 20,
   },
   actionButton: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 16,
-    paddingVertical: 14,
-    shadowColor: "#000", // ✨ Sombra añadida
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowRadius: 12,
+    elevation: 8,
   },
   transferButton: {
     backgroundColor: "#fff",
   },
   receiveButton: {
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  actionButtonText: { color: "#000", fontSize: 18, fontWeight: "700" },
+  actionIconWrapper: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  receiveIconWrapper: {
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  actionButtonText: {
+    color: "#000",
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    marginBottom: 4,
+  },
+  actionButtonSubtext: {
+    color: "rgba(0,0,0,0.6)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
   qrReceiveModal: {
     flex: 1,
     backgroundColor: "#000",

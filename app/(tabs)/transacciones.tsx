@@ -103,7 +103,9 @@ export default function TransaccionesScreen() {
     }
 
     if (activeFilter === "expense") {
-      return transactions.filter((t) => t.tipo === "envio" || t.tipo === "pago");
+      return transactions.filter(
+        (t) => t.tipo === "envio" || t.tipo === "pago"
+      );
     }
 
     return transactions;
@@ -142,7 +144,7 @@ export default function TransaccionesScreen() {
     setTimeout(() => setSelectedTransaction(null), 300);
   };
 
-  // Compartir PDF
+  // Compartir PDF (El PDF se mantiene blanco para imprimir, pero la pantalla no)
   const shareTransactionPDF = async () => {
     if (!selectedTransaction) return;
 
@@ -180,18 +182,16 @@ export default function TransaccionesScreen() {
           <div class="flow-arrow">→</div>
           <div class="flow-item">
             <div class="flow-label">Para:</div>
-            <div class="flow-value">${
-              selectedTransaction.destinatario || "Destinatario"
-            }</div>
+            <div class="flow-value">${selectedTransaction.destinatario || "Destinatario"
+          }</div>
           </div>
         `;
       } else if (selectedTransaction.tipo === "recepcion") {
         transactionFlow = `
           <div class="flow-item">
             <div class="flow-label">De:</div>
-            <div class="flow-value">${
-              selectedTransaction.remitente || "Remitente"
-            }</div>
+            <div class="flow-value">${selectedTransaction.remitente || "Remitente"
+          }</div>
           </div>
           <div class="flow-arrow">→</div>
           <div class="flow-item">
@@ -215,9 +215,8 @@ export default function TransaccionesScreen() {
           <div class="flow-arrow">→</div>
           <div class="flow-item">
             <div class="flow-label">Para:</div>
-            <div class="flow-value">${
-              selectedTransaction.destinatario || "Comercio"
-            }</div>
+            <div class="flow-value">${selectedTransaction.destinatario || "Comercio"
+          }</div>
           </div>
         `;
       }
@@ -271,15 +270,12 @@ export default function TransaccionesScreen() {
             .flow-value { font-size: 16px; color: #000; font-weight: 700; }
             .flow-arrow { font-size: 24px; color: ${color}; font-weight: bold; }
             .status-section { text-align: center; margin-bottom: 35px; }
-            .status-badge { display: inline-block; padding: 10px 24px; border-radius: 25px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; background: ${
-              selectedTransaction.estado === "completado"
-                ? "#E8F5E9"
-                : "#FFF3E0"
-            }; color: ${
-        selectedTransaction.estado === "completado" ? "#2E7D32" : "#F57C00"
-      }; border: 2px solid ${
-        selectedTransaction.estado === "completado" ? "#2E7D32" : "#F57C00"
-      }; }
+            .status-badge { display: inline-block; padding: 10px 24px; border-radius: 25px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; background: ${selectedTransaction.estado === "completado"
+          ? "#E8F5E9"
+          : "#FFF3E0"
+        }; color: ${selectedTransaction.estado === "completado" ? "#2E7D32" : "#F57C00"
+        }; border: 2px solid ${selectedTransaction.estado === "completado" ? "#2E7D32" : "#F57C00"
+        }; }
             .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
             .detail-item { background: #f9f9f9; padding: 20px; border-radius: 10px; border-left: 4px solid ${color}; }
             .detail-label { font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 700; }
@@ -297,20 +293,19 @@ export default function TransaccionesScreen() {
           </div>
           <div class="transaction-header">
             <div class="transaction-number">Operación #${selectedTransaction.id
-              .slice(0, 8)
-              .toUpperCase()}</div>
+          .slice(0, 8)
+          .toUpperCase()}</div>
             <div class="amount-display">${isNegative ? "- " : "+ "}$${Math.abs(
-        selectedTransaction.monto
-      ).toFixed(2)}</div>
+            selectedTransaction.monto
+          ).toFixed(2)}</div>
             <div class="transaction-description">${getTransactionTitle(
-              selectedTransaction
-            )}</div>
+            selectedTransaction
+          )}</div>
             <div class="transaction-flow">${transactionFlow}</div>
           </div>
-          <div class="status-section"><div class="status-badge">${
-            selectedTransaction.estado.charAt(0).toUpperCase() +
-            selectedTransaction.estado.slice(1)
-          }</div></div>
+          <div class="status-section"><div class="status-badge">${selectedTransaction.estado.charAt(0).toUpperCase() +
+        selectedTransaction.estado.slice(1)
+        }</div></div>
           <div class="details-grid">
             <div class="detail-item"><div class="detail-label">Fecha</div><div class="detail-value">${formattedDate}</div></div>
             <div class="detail-item"><div class="detail-label">Hora</div><div class="detail-value">${formattedTime}</div></div>
@@ -352,7 +347,7 @@ export default function TransaccionesScreen() {
     switch (tipo) {
       case "envio":
         return "arrow-up-circle";
-      case "recepcion":
+      case "recepcion": // ✅ Corregido
         return "arrow-down-circle";
       case "recarga":
         return "wallet";
@@ -369,7 +364,7 @@ export default function TransaccionesScreen() {
       case "envio":
       case "pago":
         return "#ff4757";
-      case "recepcion":
+      case "recepcion": // ✅ Corregido
       case "recarga":
         return "#2ecc71";
       default:
@@ -382,7 +377,7 @@ export default function TransaccionesScreen() {
     switch (item.tipo) {
       case "envio":
         return `Enviado a ${item.destinatario || "Usuario"}`;
-      case "recepcion":
+      case "recepcion": // ✅ Corregido
         return `Recibido de ${item.remitente || "Usuario"}`;
       case "recarga":
         return "Recarga de saldo";
@@ -478,8 +473,8 @@ export default function TransaccionesScreen() {
         {activeFilter === "income"
           ? "No tienes ingresos registrados aún"
           : activeFilter === "expense"
-          ? "No tienes gastos registrados aún"
-          : "Realiza tu primera transacción"}
+            ? "No tienes gastos registrados aún"
+            : "Realiza tu primera transacción"}
       </Text>
     </View>
   );
@@ -508,8 +503,8 @@ export default function TransaccionesScreen() {
             {activeFilter === "all"
               ? "operaciones"
               : activeFilter === "income"
-              ? "ingresos"
-              : "gastos"}
+                ? "ingresos"
+                : "gastos"}
           </Text>
         </View>
 
@@ -641,7 +636,7 @@ export default function TransaccionesScreen() {
           </ScrollView>
         </View>
 
-        {/* Summary Cards - EN UNA LÍNEA */}
+        {/* Summary Cards */}
         <View style={styles.summaryContainer}>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
@@ -681,7 +676,7 @@ export default function TransaccionesScreen() {
           ListEmptyComponent={renderEmpty}
         />
 
-        {/* MODAL */}
+        {/* MODAL DARK MODE PRO */}
         <Modal
           visible={modalVisible}
           animationType="slide"
@@ -695,7 +690,8 @@ export default function TransaccionesScreen() {
                   onPress={closeModal}
                   style={styles.closeButton}
                 >
-                  <Ionicons name="close" size={28} color="#000" />
+                  {/* ICONO BLANCO AHORA */}
+                  <Ionicons name="close" size={28} color="#fff" />
                 </TouchableOpacity>
                 <Text style={styles.modalHeaderTitle}>Detalles</Text>
                 <View style={{ width: 28 }} />
@@ -706,7 +702,10 @@ export default function TransaccionesScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 40 }}
               >
-                <View style={styles.modalMainSection}>
+                <LinearGradient
+                  colors={["#000000", "#121212"]}
+                  style={styles.modalMainSection}
+                >
                   <View
                     style={[
                       styles.modalIconLarge,
@@ -735,12 +734,13 @@ export default function TransaccionesScreen() {
                     ]}
                   >
                     {selectedTransaction.tipo === "envio" ||
-                    selectedTransaction.tipo === "pago"
+                      selectedTransaction.tipo === "pago"
                       ? "-"
                       : "+"}
                     ${Math.abs(selectedTransaction.monto).toFixed(2)}
                   </Text>
 
+                  {/* TEXTO BLANCO */}
                   <Text style={styles.modalTitle}>
                     {getTransactionTitle(selectedTransaction)}
                   </Text>
@@ -751,8 +751,13 @@ export default function TransaccionesScreen() {
                       {
                         backgroundColor:
                           selectedTransaction.estado === "completado"
-                            ? "#E8F5E9"
-                            : "#FFF3E0",
+                            ? "rgba(46, 236, 113, 0.1)" // Verde transparente
+                            : "rgba(255, 243, 224, 0.1)",
+                        borderColor:
+                          selectedTransaction.estado === "completado"
+                            ? "#2ecc71"
+                            : "#F57C00",
+                        borderWidth: 1,
                       },
                     ]}
                   >
@@ -765,7 +770,7 @@ export default function TransaccionesScreen() {
                       size={18}
                       color={
                         selectedTransaction.estado === "completado"
-                          ? "#2E7D32"
+                          ? "#2ecc71"
                           : "#F57C00"
                       }
                     />
@@ -775,7 +780,7 @@ export default function TransaccionesScreen() {
                         {
                           color:
                             selectedTransaction.estado === "completado"
-                              ? "#2E7D32"
+                              ? "#2ecc71"
                               : "#F57C00",
                         },
                       ]}
@@ -784,7 +789,7 @@ export default function TransaccionesScreen() {
                         selectedTransaction.estado.slice(1)}
                     </Text>
                   </View>
-                </View>
+                </LinearGradient>
 
                 <View style={styles.detailsSection}>
                   <View style={styles.detailCard}>
@@ -792,7 +797,7 @@ export default function TransaccionesScreen() {
                       <Ionicons
                         name="calendar-outline"
                         size={22}
-                        color="#000"
+                        color="#999" // Icono gris claro
                       />
                       <Text style={styles.detailCardTitle}>Fecha</Text>
                     </View>
@@ -803,7 +808,7 @@ export default function TransaccionesScreen() {
 
                   <View style={styles.detailCard}>
                     <View style={styles.detailCardHeader}>
-                      <Ionicons name="list-outline" size={22} color="#000" />
+                      <Ionicons name="list-outline" size={22} color="#999" />
                       <Text style={styles.detailCardTitle}>Tipo</Text>
                     </View>
                     <Text style={styles.detailCardValue}>
@@ -814,26 +819,26 @@ export default function TransaccionesScreen() {
 
                   {(selectedTransaction.destinatario ||
                     selectedTransaction.remitente) && (
-                    <View style={styles.detailCard}>
-                      <View style={styles.detailCardHeader}>
-                        <Ionicons
-                          name="person-outline"
-                          size={22}
-                          color="#000"
-                        />
-                        <Text style={styles.detailCardTitle}>
-                          {selectedTransaction.tipo === "envio" ||
-                          selectedTransaction.tipo === "pago"
-                            ? "Destinatario"
-                            : "Remitente"}
+                      <View style={styles.detailCard}>
+                        <View style={styles.detailCardHeader}>
+                          <Ionicons
+                            name="person-outline"
+                            size={22}
+                            color="#999"
+                          />
+                          <Text style={styles.detailCardTitle}>
+                            {selectedTransaction.tipo === "envio" ||
+                              selectedTransaction.tipo === "pago"
+                              ? "Destinatario"
+                              : "Remitente"}
+                          </Text>
+                        </View>
+                        <Text style={styles.detailCardValue}>
+                          {selectedTransaction.destinatario ||
+                            selectedTransaction.remitente}
                         </Text>
                       </View>
-                      <Text style={styles.detailCardValue}>
-                        {selectedTransaction.destinatario ||
-                          selectedTransaction.remitente}
-                      </Text>
-                    </View>
-                  )}
+                    )}
 
                   {selectedTransaction.razon && (
                     <View style={styles.detailCard}>
@@ -841,7 +846,7 @@ export default function TransaccionesScreen() {
                         <Ionicons
                           name="chatbubble-outline"
                           size={22}
-                          color="#000"
+                          color="#999"
                         />
                         <Text style={styles.detailCardTitle}>Concepto</Text>
                       </View>
@@ -856,14 +861,18 @@ export default function TransaccionesScreen() {
                       <Ionicons
                         name="receipt-outline"
                         size={22}
-                        color="#000"
+                        color="#999"
                       />
                       <Text style={styles.detailCardTitle}>ID</Text>
                     </View>
                     <Text
                       style={[
                         styles.detailCardValue,
-                        { fontFamily: "monospace", fontSize: 13 },
+                        {
+                          fontFamily: "monospace",
+                          fontSize: 13,
+                          color: "#666",
+                        }, // ID un poco más oscuro
                       ]}
                     >
                       {selectedTransaction.id}
@@ -877,10 +886,10 @@ export default function TransaccionesScreen() {
                   disabled={sharingPDF}
                 >
                   {sharingPDF ? (
-                    <ActivityIndicator color="#fff" size="small" />
+                    <ActivityIndicator color="#000" size="small" />
                   ) : (
                     <>
-                      <Ionicons name="share-outline" size={22} color="#fff" />
+                      <Ionicons name="share-outline" size={22} color="#000" />
                       <Text style={styles.shareButtonText}>
                         Compartir como PDF
                       </Text>
@@ -899,11 +908,11 @@ export default function TransaccionesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: Platform.OS === "ios" ? 30 : 20, // ⬆️ MÁS ARRIBA
+    paddingTop: Platform.OS === "ios" ? 30 : 20,
   },
   header: {
     paddingHorizontal: 20,
-    marginBottom: 16, // ⬆️ Reducido
+    marginBottom: 16,
   },
   headerTitle: {
     fontSize: 34,
@@ -918,7 +927,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   filtersContainer: {
-    marginBottom: 16, // ⬆️ Reducido
+    marginBottom: 16,
   },
   filtersScroll: {
     paddingHorizontal: 20,
@@ -968,7 +977,7 @@ const styles = StyleSheet.create({
   },
   summaryContainer: {
     paddingHorizontal: 20,
-    marginBottom: 16, // ⬆️ Reducido
+    marginBottom: 16,
   },
   summaryCard: {
     backgroundColor: "#1a1a1a",
@@ -978,7 +987,7 @@ const styles = StyleSheet.create({
     borderColor: "#222",
   },
   summaryRow: {
-    flexDirection: "row", // ← EN UNA LÍNEA
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
@@ -998,7 +1007,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   summaryValue: {
-    fontSize: 18, // ← MÁS GRANDE
+    fontSize: 18,
     fontWeight: "800",
   },
   summaryDivider: {
@@ -1009,7 +1018,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 20,
-    paddingBottom: 120, // ⚠️ Espacio para navbar flotante
+    paddingBottom: 120,
   },
   transactionItem: {
     flexDirection: "row",
@@ -1087,9 +1096,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 12,
   },
+  // --- NUEVOS ESTILOS DARK MODE PARA MODAL ---
   modalContainer: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#000", // ⬛️ FONDO NEGRO
   },
   modalHeader: {
     flexDirection: "row",
@@ -1098,29 +1108,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: Platform.OS === "ios" ? 60 : 40,
     paddingBottom: 20,
-    backgroundColor: "#fff",
+    backgroundColor: "#000", // ⬛️ Header Negro
     borderBottomWidth: 1,
-    borderBottomColor: "#e8e8e8",
+    borderBottomColor: "#222",
   },
   closeButton: {
     width: 40,
     height: 40,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#1a1a1a", // Botón gris oscuro
+    borderRadius: 20,
   },
   modalHeaderTitle: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#000",
+    color: "#fff", // ⬜️ Texto Blanco
   },
   modalContent: {
     flex: 1,
+    backgroundColor: "#000",
   },
   modalMainSection: {
     alignItems: "center",
     paddingVertical: 50,
     paddingHorizontal: 20,
-    backgroundColor: "#fff",
+    backgroundColor: "#000",
   },
   modalIconLarge: {
     width: 120,
@@ -1139,7 +1152,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#333",
+    color: "#fff", // ⬜️ Título Blanco
     textAlign: "center",
     marginBottom: 18,
   },
@@ -1159,12 +1172,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   detailCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#1A1A1A", // ⬛️ Tarjetas Gris Oscuro
     borderRadius: 18,
     padding: 20,
     marginBottom: 14,
-    borderWidth: 1,
-    borderColor: "#e8e8e8",
+    borderWidth: 0, // Sin bordes
   },
   detailCardHeader: {
     flexDirection: "row",
@@ -1174,7 +1186,7 @@ const styles = StyleSheet.create({
   detailCardTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#666",
+    color: "#666", // Etiqueta Gris
     marginLeft: 10,
     textTransform: "uppercase",
     letterSpacing: 1,
@@ -1182,14 +1194,14 @@ const styles = StyleSheet.create({
   detailCardValue: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#000",
+    color: "#fff", // ⬜️ Valor Blanco
     lineHeight: 24,
   },
   shareButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#000",
+    backgroundColor: "#fff", // Botón blanco para contraste
     borderRadius: 16,
     paddingVertical: 18,
     marginHorizontal: 20,
@@ -1197,7 +1209,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   shareButtonText: {
-    color: "#fff",
+    color: "#000", // Texto negro en botón blanco
     fontSize: 17,
     fontWeight: "800",
   },
