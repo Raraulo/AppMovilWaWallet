@@ -1,12 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur"; // 🔥 IMPORTA ESTO
+import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import { Redirect, Tabs } from "expo-router";
 import { Platform, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../../utils/ctx";
 
+
 export default function TabsLayout() {
   const { user, isLoading } = useAuth();
+
 
   if (isLoading) {
     return (
@@ -16,6 +19,7 @@ export default function TabsLayout() {
     );
   }
   if (!user) return <Redirect href="/login" />;
+
 
   return (
     <Tabs
@@ -28,27 +32,26 @@ export default function TabsLayout() {
           borderBottomColor: "#222",
         },
         headerTintColor: "#fff",
-        headerTitleStyle: {
-          fontWeight: "700",
-          fontSize: 18,
-          letterSpacing: 0.5,
-        },
+        headerTitleStyle: { fontWeight: "700", fontSize: 18 },
         headerShadowVisible: false,
 
+
         tabBarActiveTintColor: "#fff",
-        tabBarInactiveTintColor: "#555",
+        tabBarInactiveTintColor: "#fefefeff",
         tabBarStyle: styles.tabBar,
         tabBarShowLabel: false,
 
-        // 🔥 AQUÍ ESTÁ EL LIQUID GLASS
+
         tabBarBackground: () => (
-          <BlurView
-            intensity={80} // Intensidad del blur (40-100)
-            tint="dark" // Tono oscuro
-            style={styles.blurContainer}
-          >
-            <View style={styles.tabBarBackground} />
-          </BlurView>
+          <View style={styles.glassContainer}>
+            <BlurView intensity={95} tint="dark" style={StyleSheet.absoluteFill} />
+            <LinearGradient
+              colors={['rgba(0, 0, 0, 1)', 'rgba(0, 0, 0, 1)']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
         ),
       }}
     >
@@ -58,19 +61,14 @@ export default function TabsLayout() {
           title: "Transactions",
           tabBarIcon: ({ color, focused }) => (
             <View style={styles.iconContainer}>
-              {focused && <View style={styles.activeOval} />}
-              <Ionicons
-                name={focused ? "receipt" : "receipt-outline"}
-                size={30}
-                color={color}
-              />
+              {focused && <GlassOval />}
+              <Ionicons name={focused ? "receipt" : "receipt-outline"} size={32} color={color} />
             </View>
           ),
         }}
-        listeners={{
-          tabPress: () => Haptics.selectionAsync(),
-        }}
+        listeners={{ tabPress: () => Haptics.selectionAsync() }}
       />
+
 
       <Tabs.Screen
         name="index"
@@ -78,19 +76,14 @@ export default function TabsLayout() {
           title: "Wallet",
           tabBarIcon: ({ color, focused }) => (
             <View style={styles.iconContainer}>
-              {focused && <View style={styles.activeOval} />}
-              <Ionicons
-                name={focused ? "wallet" : "wallet-outline"}
-                size={32}
-                color={color}
-              />
+              {focused && <GlassOval />}
+              <Ionicons name={focused ? "wallet" : "wallet-outline"} size={34} color={color} />
             </View>
           ),
         }}
-        listeners={{
-          tabPress: () => Haptics.selectionAsync(),
-        }}
+        listeners={{ tabPress: () => Haptics.selectionAsync() }}
       />
+
 
       <Tabs.Screen
         name="perfil"
@@ -98,71 +91,69 @@ export default function TabsLayout() {
           title: "Profile",
           tabBarIcon: ({ color, focused }) => (
             <View style={styles.iconContainer}>
-              {focused && <View style={styles.activeOval} />}
-              <Ionicons
-                name={focused ? "person" : "person-outline"}
-                size={30}
-                color={color}
-              />
+              {focused && <GlassOval />}
+              <Ionicons name={focused ? "person" : "person-outline"} size={32} color={color} />
             </View>
           ),
         }}
-        listeners={{
-          tabPress: () => Haptics.selectionAsync(),
-        }}
+        listeners={{ tabPress: () => Haptics.selectionAsync() }}
       />
     </Tabs>
   );
 }
 
+
+const GlassOval = () => (
+  <LinearGradient
+    colors={['rgba(0, 0, 0, 1)', 'rgba(0, 0, 0, 1)']}
+    start={{ x: 0, y: 0 }}
+    end={{ x: 0, y: 1 }}
+    style={styles.activeOval}
+  />
+);
+
+
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    elevation: 0,
+    bottom: 5,  // ✅ CAMBIO: Era 20, ahora 5 (más abajo)
+    left: 15,
+    right: 15,
     height: Platform.OS === 'ios' ? 70 : 65,
+    elevation: 0,
     borderTopWidth: 0,
     backgroundColor: 'transparent',
-    borderRadius: 25,
+    borderRadius: 35,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.5,
     shadowRadius: 20,
-    overflow: 'hidden', // 🔥 Importante para el blur
   },
-  // 🔥 NUEVO: Contenedor del BlurView
-  blurContainer: {
+  glassContainer: {
     flex: 1,
-    borderRadius: 25,
+    borderRadius: 35,
     overflow: 'hidden',
-  },
-  tabBarBackground: {
-    flex: 1,
-    backgroundColor: "rgba(10, 10, 10, 0.6)", // 🔥 Más transparente para ver el blur
-    borderRadius: 25,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)", // 🔥 Borde más visible
+    borderColor: "rgba(255, 255, 255, 0.1)",
   },
   iconContainer: {
     alignItems: "center",
     justifyContent: "center",
-    height: 84,
-    width: 84,
-    top: Platform.OS === 'ios' ? 1 : 13,
+    height: 70,
+    width: 80,
+    top: Platform.OS === 'ios' ? 25 : 15,
   },
   activeOval: {
     position: 'absolute',
-    width: 104,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: "rgba(255, 255, 255, 0.08)", // 🔥 Un poco de color
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.25)", // 🔥 Borde más visible
-    shadowColor: "#fff",
-    shadowOffset: { width: 0, height: 0 },
+    width: 100,
+    height: 55,
+    borderRadius: 30,
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.2,
     shadowRadius: 10,
+    transform: [{ translateY: -0.9 }],
   },
 });

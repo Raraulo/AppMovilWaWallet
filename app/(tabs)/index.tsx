@@ -7,7 +7,7 @@ import {
   doc,
   getDoc,
   getDocs,
-  onSnapshot, // 🔥 AÑADIDO
+  onSnapshot,
   query,
   runTransaction,
   setDoc,
@@ -287,6 +287,13 @@ export default function IndexScreen() {
     try {
       const parsed = JSON.parse(data);
       if (parsed.app === "WaWallet" && parsed.uid) {
+        // ✅ Validar que no sea la misma cuenta
+        if (parsed.uid === auth.currentUser?.uid) {
+          Alert.alert("Error", "No puedes transferirte dinero a ti mismo");
+          setScanned(false);
+          setScanning(false);
+          return;
+        }
         setScannedData(parsed);
         setRecipientName(parsed.name || "Usuario");
         setScanning(false);
@@ -319,21 +326,19 @@ export default function IndexScreen() {
   useEffect(() => {
     if (!auth.currentUser) return;
 
-    // Listener en tiempo real para el balance y datos del usuario
     const userRef = doc(db, "usuarios", auth.currentUser.uid);
     const unsubscribe = onSnapshot(
       userRef,
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          setBalance(data.balance ?? 0);
+          // ✅ Asegurar que balance nunca sea negativo
+          setBalance(Math.max(0, data.balance ?? 0));
           setUserData(data);
 
-          // Actualizar tarjeta si existe
           if (data.tarjeta) {
             setCard(data.tarjeta);
           } else {
-            // Crear tarjeta si no existe
             const newCard = generateCard(
               data.nombre ? `${data.nombre} ${data.apellido}` : ""
             );
@@ -349,7 +354,6 @@ export default function IndexScreen() {
       }
     );
 
-    // Cleanup al desmontar
     return () => unsubscribe();
   }, []);
 
@@ -358,15 +362,22 @@ export default function IndexScreen() {
     const transferAmount = parseFloat(amount);
     const recipientUid = scannedData?.uid || null;
 
-    if (!amount) {
+    // ✅ Validaciones mejoradas
+    if (!amount || amount.trim() === "") {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Error", "Ingresa una cantidad");
       return;
     }
 
-    if (transferAmount <= 0 || transferAmount > balance) {
+    if (isNaN(transferAmount) || transferAmount <= 0) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", "Cantidad inválida o saldo insuficiente");
+      Alert.alert("Error", "Ingresa una cantidad válida mayor a 0");
+      return;
+    }
+
+    if (transferAmount > balance) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Error", "Saldo insuficiente");
       return;
     }
 
@@ -410,6 +421,14 @@ export default function IndexScreen() {
         setRecipientName(finalRecipientName);
       }
 
+      // ✅ Validar que no sea transferencia a sí mismo
+      if (finalRecipientUid === auth.currentUser!.uid) {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert("Error", "No puedes transferirte dinero a ti mismo");
+        setTransferLoading(false);
+        return;
+      }
+
       const senderDoc = await getDoc(
         doc(db, "usuarios", auth.currentUser!.uid)
       );
@@ -426,6 +445,7 @@ export default function IndexScreen() {
         const currentSenderData = senderSnap.data();
         const currentBalance = currentSenderData.balance ?? 0;
 
+        // ✅ Doble verificación de saldo
         if (transferAmount > currentBalance)
           throw new Error("Saldo insuficiente");
 
@@ -435,12 +455,19 @@ export default function IndexScreen() {
         if (!recipientSnap.exists())
           throw new Error("Destinatario no encontrado");
 
+        // ✅ Asegurar que el nuevo balance nunca sea negativo
+        const newSenderBalance = Math.max(0, currentBalance - transferAmount);
+        const newRecipientBalance = Math.max(
+          0,
+          (recipientSnap.data().balance ?? 0) + transferAmount
+        );
+
         transaction.update(senderRef, {
-          balance: currentBalance - transferAmount,
+          balance: newSenderBalance,
         });
 
         transaction.update(recipientRef, {
-          balance: (recipientSnap.data().balance ?? 0) + transferAmount,
+          balance: newRecipientBalance,
         });
 
         const senderTransactionRef = doc(
@@ -473,7 +500,6 @@ export default function IndexScreen() {
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success
       );
-      // 🔥 Ya no necesitas fetchOrCreateCard() porque onSnapshot lo actualiza automáticamente
       showSuccessAnimation();
     } catch (error) {
       console.error("❌ Error en transferencia:", error);
@@ -487,7 +513,7 @@ export default function IndexScreen() {
   };
 
   const formatBalance = (v: number) =>
-    v.toLocaleString("en-US", { minimumFractionDigits: 2 });
+    v.toLocaleString("es-EC", { minimumFractionDigits: 2 });
 
   const qrData = JSON.stringify({
     app: "WaWallet",
@@ -513,20 +539,8 @@ export default function IndexScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Welcome Header */}
-      <View style={styles.welcomeHeader}>
-        <View>
-          <Text style={styles.welcomeText}>Welcome back</Text>
-          <Text style={styles.userName}>
-            {userData
-              ? `${userData.nombre || ""} ${userData.apellido || ""}`.trim()
-              : "User"}
-          </Text>
-        </View>
-        <TouchableOpacity style={styles.notificationBtn}>
-          <Ionicons name="notifications-outline" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      {/* Welcome Header - MEJORADO */}
+
 
       {/* Balance Card */}
       <TouchableOpacity
@@ -535,7 +549,7 @@ export default function IndexScreen() {
         activeOpacity={0.8}
       >
         <View style={styles.balanceHeader}>
-          <Text style={styles.balanceLabel}>Total Balance</Text>
+          <Text style={styles.balanceLabel}>Saldo Total</Text>
           <TouchableOpacity onPress={() => setShowBalance(!showBalance)}>
             <Ionicons
               name={showBalance ? "eye-off-outline" : "eye-outline"}
@@ -545,15 +559,18 @@ export default function IndexScreen() {
           </TouchableOpacity>
         </View>
         <Text style={styles.balanceAmount}>
-          {showBalance ? `$${formatBalance(balance)}` : "••••••"}
+          {showBalance ? `$ ${formatBalance(balance)}` : "*  *  *  *  *  *"}
         </Text>
         <View style={styles.balanceFooter}>
           <View style={styles.balanceChange}>
-            <Ionicons name="trending-up" size={14} color="#34C759" />
-            <Text style={styles.balanceChangeText}>+2.5% this month</Text>
+            <Ionicons name="shield-checkmark" size={14} color="#34C759" />
+            <Text style={styles.balanceChangeText}>Cuenta verificada</Text>
           </View>
         </View>
       </TouchableOpacity>
+
+      {/* MIS TARJETAS - NUEVO */}
+      <Text style={styles.sectionTitle}>Mi Tarjeta Digital</Text>
 
       {/* CARD */}
       <TouchableOpacity
@@ -582,11 +599,11 @@ export default function IndexScreen() {
           </Text>
           <View style={styles.cardBottom}>
             <View>
-              <Text style={styles.label}>Cardholder</Text>
+              <Text style={styles.label}>Titular</Text>
               <Text style={styles.valueDark}>{card.titular}</Text>
             </View>
             <View>
-              <Text style={styles.label}>Expires</Text>
+              <Text style={styles.label}>Vence</Text>
               <Text style={styles.valueDark}>{card.fechaExp}</Text>
             </View>
           </View>
@@ -594,7 +611,7 @@ export default function IndexScreen() {
       </TouchableOpacity>
 
       {/* Quick Actions Title */}
-      <Text style={styles.sectionTitle}>Quick Actions</Text>
+      <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
 
       {/* ACTION BUTTONS */}
       <View style={styles.actionsContainer}>
@@ -606,8 +623,8 @@ export default function IndexScreen() {
           <View style={styles.actionIconWrapper}>
             <Ionicons name="paper-plane" size={24} color="#000" />
           </View>
-          <Text style={styles.actionButtonText}>Send</Text>
-          <Text style={styles.actionButtonSubtext}>Transfer money</Text>
+          <Text style={styles.actionButtonText}>Enviar</Text>
+          <Text style={styles.actionButtonSubtext}>Transferir dinero</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -618,7 +635,7 @@ export default function IndexScreen() {
             <Ionicons name="qr-code" size={24} color="#fff" />
           </View>
           <Text style={[styles.actionButtonText, { color: "#fff" }]}>
-            Receive
+            Recibir
           </Text>
           <Text
             style={[
@@ -626,7 +643,7 @@ export default function IndexScreen() {
               { color: "rgba(255,255,255,0.7)" },
             ]}
           >
-            Show QR code
+            Mostrar QR
           </Text>
         </TouchableOpacity>
       </View>
@@ -653,7 +670,7 @@ export default function IndexScreen() {
             <TouchableOpacity onPress={closeQRModal} style={styles.closeBtn}>
               <Ionicons name="close" size={30} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.qrReceiveTitle}>Mi código QR</Text>
+            <Text style={styles.qrReceiveTitle}>Mi Código QR</Text>
             <View style={{ width: 30 }} />
           </View>
 
@@ -682,7 +699,7 @@ export default function IndexScreen() {
             <View style={styles.qrInfoCard}>
               <Ionicons name="information-circle" size={20} color="#fff" />
               <Text style={styles.qrInfoText}>
-                Share this code to receive money
+                Comparte este código para recibir dinero de forma segura
               </Text>
             </View>
           </Animated.View>
@@ -708,7 +725,7 @@ export default function IndexScreen() {
               >
                 <Ionicons name="close" size={28} color="#fff" />
               </TouchableOpacity>
-              <Text style={styles.modalHeaderTitle}>Send Money</Text>
+              <Text style={styles.modalHeaderTitle}>Enviar Dinero</Text>
               <View style={{ width: 28 }} />
             </View>
 
@@ -725,10 +742,10 @@ export default function IndexScreen() {
                 <View style={styles.successCheckmark}>
                   <Ionicons name="checkmark" size={60} color="#fff" />
                 </View>
-                <Text style={styles.successTitle}>Transfer Complete!</Text>
+                <Text style={styles.successTitle}>¡Transferencia Exitosa!</Text>
                 <Text style={styles.successAmount}>${amount}</Text>
                 <Text style={styles.successRecipient}>
-                  Sent to {recipientName || recipientPhone}
+                  Enviado a {recipientName || recipientPhone}
                 </Text>
                 {reason ? (
                   <Text style={styles.successReason}>"{reason}"</Text>
@@ -758,7 +775,7 @@ export default function IndexScreen() {
                     </View>
 
                     <Text style={styles.scanText}>
-                      Scan recipient's QR code
+                      Escanea el código QR del destinatario
                     </Text>
 
                     <TouchableOpacity
@@ -768,7 +785,7 @@ export default function IndexScreen() {
                         setScanned(false);
                       }}
                     >
-                      <Text style={styles.cancelScanText}>Cancel</Text>
+                      <Text style={styles.cancelScanText}>Cancelar</Text>
                     </TouchableOpacity>
                   </View>
                 </CameraView>
@@ -792,7 +809,7 @@ export default function IndexScreen() {
                         setRecipientName("");
                       }}
                     >
-                      <Text style={styles.changeRecipientText}>Change</Text>
+                      <Text style={styles.changeRecipientText}>Cambiar</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -808,21 +825,21 @@ export default function IndexScreen() {
                       color="#fff"
                       style={{ marginRight: 10 }}
                     />
-                    <Text style={styles.qrScanText}>Scan QR Code</Text>
+                    <Text style={styles.qrScanText}>Escanear Código QR</Text>
                   </TouchableOpacity>
                 )}
 
                 {!scannedData && (
                   <View style={styles.divider}>
                     <View style={styles.dividerLine} />
-                    <Text style={styles.dividerText}>or</Text>
+                    <Text style={styles.dividerText}>o</Text>
                     <View style={styles.dividerLine} />
                   </View>
                 )}
 
                 {!scannedData && (
                   <View style={styles.inputSection}>
-                    <Text style={styles.inputLabel}>Phone Number</Text>
+                    <Text style={styles.inputLabel}>Número de Teléfono</Text>
                     <View style={styles.inputWrapper}>
                       <Ionicons
                         name="call-outline"
@@ -832,7 +849,7 @@ export default function IndexScreen() {
                       />
                       <TextInput
                         style={styles.textInput}
-                        placeholder="Enter phone number"
+                        placeholder="Ingresa el número"
                         placeholderTextColor="#555"
                         keyboardType="phone-pad"
                         value={recipientPhone}
@@ -843,7 +860,7 @@ export default function IndexScreen() {
                 )}
 
                 <View style={styles.amountSection}>
-                  <Text style={styles.amountLabel}>Amount</Text>
+                  <Text style={styles.amountLabel}>Cantidad</Text>
                   <View style={styles.amountInputContainer}>
                     <Text style={styles.currencySymbol}>$</Text>
                     <TextInput
@@ -857,12 +874,12 @@ export default function IndexScreen() {
                     />
                   </View>
                   <Text style={styles.availableBalance}>
-                    Available: ${formatBalance(balance)}
+                    Disponible: ${formatBalance(balance)}
                   </Text>
                 </View>
 
                 <View style={styles.inputSection}>
-                  <Text style={styles.inputLabel}>Note (optional)</Text>
+                  <Text style={styles.inputLabel}>Nota (opcional)</Text>
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="chatbubble-outline"
@@ -872,7 +889,7 @@ export default function IndexScreen() {
                     />
                     <TextInput
                       style={styles.textInput}
-                      placeholder="What's this for?"
+                      placeholder="¿Para qué es?"
                       placeholderTextColor="#555"
                       value={reason}
                       onChangeText={setReason}
@@ -911,7 +928,7 @@ export default function IndexScreen() {
                         style={{ marginRight: 8 }}
                       />
                       <Text style={styles.sendButtonText}>
-                        Send ${amount || "0.00"}
+                        Enviar ${amount || "0.00"}
                       </Text>
                     </>
                   )}
@@ -991,11 +1008,11 @@ export default function IndexScreen() {
 
                 <View style={styles.cardBottom}>
                   <View>
-                    <Text style={styles.label}>Cardholder</Text>
+                    <Text style={styles.label}>Titular</Text>
                     <Text style={styles.valueDarkModal}>{card.titular}</Text>
                   </View>
                   <View>
-                    <Text style={styles.label}>Expires</Text>
+                    <Text style={styles.label}>Vence</Text>
                     <Text style={styles.valueDarkModal}>{card.fechaExp}</Text>
                   </View>
                 </View>
@@ -1039,7 +1056,7 @@ export default function IndexScreen() {
                   style={{ marginRight: 8 }}
                 />
                 <Text style={styles.copyBtnText}>
-                  {copied ? "Copied!" : "Copy Number"}
+                  {copied ? "¡Copiado!" : "Copiar Número"}
                 </Text>
               </TouchableOpacity>
 
@@ -1061,7 +1078,7 @@ export default function IndexScreen() {
               >
                 <Ionicons name="checkmark-circle" size={20} color="#34C759" />
                 <Text style={styles.copyFeedbackText}>
-                  Number copied to clipboard
+                  Número copiado al portapapeles
                 </Text>
               </Animated.View>
             </View>
@@ -1071,8 +1088,6 @@ export default function IndexScreen() {
     </View>
   );
 }
-
-// ... (TODOS LOS ESTILOS SE MANTIENEN IGUAL)
 
 /* STYLES */
 const styles = StyleSheet.create({
@@ -1088,35 +1103,26 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Welcome Header
+  // Welcome Header - MEJORADO
   welcomeHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingTop: Platform.OS === "ios" ? 70 : 20,
-    paddingBottom: 12,
-  },
-  welcomeText: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.6)",
-    fontWeight: "500",
-    letterSpacing: 0.5,
+    paddingBottom: 20,
   },
   userName: {
-    fontSize: 24,
+    fontSize: 28,
     color: "#fff",
-    fontWeight: "700",
-    marginTop: 4,
+    fontWeight: "800",
+    marginBottom: 4,
+    letterSpacing: 0.3,
   },
-  notificationBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+  welcomeSubtext: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.5)",
+    fontWeight: "500",
+    letterSpacing: 0.3,
   },
 
   // Balance Card
@@ -1124,7 +1130,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
     borderRadius: 24,
     padding: 20,
-    marginBottom: 16,
+    marginTop: Platform.OS === 'ios' ? 70 : 30,  // ✅ AGREGA ESTA LÍNEA
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
     shadowColor: "#000",
@@ -1172,6 +1179,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  // Section Title
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 12,
+    letterSpacing: 0.3,
+  },
+
   // Card Styles
   cardContainer: {
     width: width * 0.9,
@@ -1179,7 +1195,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: "hidden",
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
@@ -1229,15 +1245,6 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.2)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
-  },
-
-  // Section Title
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#fff",
-    marginBottom: 12,
-    letterSpacing: 0.3,
   },
 
   // Action Buttons

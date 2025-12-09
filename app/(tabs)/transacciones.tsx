@@ -495,18 +495,7 @@ export default function TransaccionesScreen() {
     <>
       <StatusBar barStyle="light-content" />
       <LinearGradient colors={["#000000", "#0a0a0a"]} style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Tus Transacciones</Text>
-          <Text style={styles.headerSubtitle}>
-            {filteredTransactions.length}{" "}
-            {activeFilter === "all"
-              ? "operaciones"
-              : activeFilter === "income"
-                ? "ingresos"
-                : "gastos"}
-          </Text>
-        </View>
+
 
         {/* Filters */}
         <View style={styles.filtersContainer}>
